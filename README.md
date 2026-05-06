@@ -8,5 +8,5 @@ A unified causal-LM orchestrator that jointly learns task decomposition and per-
 
 ## Method overview
 
-![Method overview](method.png)
+![Method overview](model.png)
 
