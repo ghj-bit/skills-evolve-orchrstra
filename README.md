@@ -46,6 +46,9 @@ agentic tool use.
   multi-turn Uno harness flow are both recorded in every `summary.json`.
 - **OpenAI-compatible deployment.** The local policy and worker pool can be
   served by vLLM, LiteLLM, or any compatible `/v1/chat/completions` gateway.
+## News
+
+The model code is now open source. If you have any questions, please feel free to raise an issue, and we will correct them promptly.
 
 ## Experimental Snapshot
 
