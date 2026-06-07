@@ -1,0 +1,41 @@
+
+datasets:
+
+  - name: gsm8k
+    hf_path: openai/gsm8k
+    hf_subset: main
+    split: train
+    domain: atomic_reasoning
+    n_samples: 500
+  - name: numinamath
+    hf_path: AI-MO/NuminaMath-CoT
+    split: train
+    domain: compositional_reasoning
+    n_samples: 1500
+  - name: drop
+    hf_path: ucinlp/drop
+    split: train
+    domain: knowledge_retrieval
+    n_samples: 1500
+  - name: hotpotqa
+    hf_path: hotpot_qa
+    hf_subset: fullwiki
+    split: train
+    domain: knowledge_retrieval
+    n_samples: 1500
+  - name: musique
+    hf_path: bdsaglam/musique
+    split: train
+    domain: knowledge_composition
+    n_samples: 1500
+  - name: taco
+    hf_path: BAAI/TACO
+    parquet_pattern: "hf://datasets/BAAI/TACO/ALL/train-*.parquet"
+    split: train
+    domain: tool_orchestration
+    n_samples: 1750
+  - name: toolace
+    hf_path: Team-ACE/ToolACE
+    split: train
+    domain: tool_orchestration
+    n_samples: 1750

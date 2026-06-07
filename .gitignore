@@ -1,0 +1,67 @@
+# Ignore everything by default.
+*
+
+# Keep gitignore and README.
+!.gitignore
+!README.md
+!.env.example
+!CITATION.cff
+!LICENSE
+!Notice.txt
+
+# Keep docs.
+!docs/
+!docs/**
+
+# Keep configs.
+!configs/
+!configs/**
+
+# Keep scripts.
+!scripts/
+!scripts/**
+
+# Keep runtime environment and orchestrator code.
+!env/
+!env/**
+!uno_orchestor/
+!uno_orchestor/**
+
+# Keep runnable examples.
+!examples/
+!examples/**
+
+# Keep project figures used in README.
+!pictures/
+!pictures/**
+
+# Keep eval pipeline.
+!eval_pipeline/
+!eval_pipeline/**
+
+# Keep the vendored verl RL framework.
+# Pinned to upstream Bytedance github.com/verl-project/verl.git, tag v0.7.0
+# (commit f9c855f7cf04d603c9546bc01776c74806a879c1), Apache-2.0. Tree flattened
+# (no nested .git); the importable Python package lives at verl/verl/.
+!verl/
+!verl/**
+
+# Keep data configs and RL pool metadata (build_stats / README only —
+# parquet artefacts are too large for git, regenerate via
+# scripts/rl/prepare_prompt_pool.py and consult data/rl/build_stats.json
+# for the exact build command and category distribution).
+!data/
+!data/*.yaml
+!data/*.md
+!data/rl/
+!data/rl/*.json
+!data/rl/*.md
+!data/rl/*.yaml
+
+# macOS / editor noise
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+__pycache__/

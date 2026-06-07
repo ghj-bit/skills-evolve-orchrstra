@@ -1,0 +1,105 @@
+policy_models:
+  - Qwen/Qwen3-4B
+  - Qwen/Qwen2.5-7B-Instruct
+models:
+  - id: gemini-2.5-flash-lite
+    usd_per_1m_input: 0.10
+    usd_per_1m_output: 0.40
+    description: >
+      Google's ultra-affordable model. 1M context, multimodal.
+      Best for high-volume simple tasks. Limited reasoning/coding.
+    allowed_skills: [direct_answer, web_search, read_document, extract_field]
+
+  - id: gemini-2.5-flash
+    usd_per_1m_input: 0.30
+    usd_per_1m_output: 2.50
+    description: >
+      Google's fast budget model. 1M context, ~201 tok/s. Good for summarization,
+      chatbots, production pipelines. Not for complex math or deep reasoning.
+    allowed_skills: [direct_answer, web_search, read_document, extract_field]
+
+  - id: kimi-k2.5
+    usd_per_1m_input: 0.60
+    usd_per_1m_output: 3.00
+    description: >
+      Moonshot AI's open-source MoE (1T params, 32B active). Strong coding,
+      document processing, Chinese support. Lacks symbolic math.
+    allowed_skills: [direct_answer, reason, web_search, read_document, extract_field, fact_check]
+
+  - id: gemini-3-flash-preview
+    usd_per_1m_input: 0.50
+    usd_per_1m_output: 3.00
+    description: >
+      Google's high-speed thinking model. 1M context. Near-Pro reasoning with
+      Flash-line latency. Configurable thinking levels. Best mid-tier all-rounder.
+    allowed_skills: [direct_answer, reason, web_search, database_query, read_document, read_code, extract_field, symbolic_math, execute_python, call_api, parse_structured, fact_check]
+
+  - id: gpt-5.3-codex
+    usd_per_1m_input: 1.75
+    usd_per_1m_output: 14.00
+    description: >
+      OpenAI's advanced agentic coding model. Tops SWE-Bench Pro and Terminal-Bench 2.0.
+      Full software lifecycle: debugging, deploying, testing. Precise symbolic computation.
+    allowed_skills: [direct_answer, symbolic_math, execute_python, execute_shell, call_api, read_code, parse_structured]
+
+  - id: gpt-5.4
+    usd_per_1m_input: 2.50
+    usd_per_1m_output: 15.00
+    description: >
+      OpenAI's most capable model. 1M context. Native computer-use.
+      57.7% SWE-bench Pro, 75% OSWorld. Unified coding/reasoning/computer-use.
+    allowed_skills: [direct_answer, reason, web_search, database_query, read_document, read_code, extract_field, symbolic_math, execute_python, execute_shell, call_api, parse_structured, fact_check]
+
+  - id: claude-sonnet-4-6
+    usd_per_1m_input: 3.00
+    usd_per_1m_output: 15.00
+    description: >
+      Anthropic's fast frontier model. 79.6% SWE-bench Verified. 1M context,
+      40-60 tok/s. Thinks between tool calls. Ideal for coding and multi-step agents.
+    allowed_skills: [direct_answer, reason, web_search, database_query, read_document, read_code, extract_field, symbolic_math, execute_python, execute_shell, call_api, parse_structured, fact_check]
+
+  - id: claude-opus-4-6
+    usd_per_1m_input: 5.00
+    usd_per_1m_output: 25.00
+    description: >
+      Anthropic's most capable model. 80.8% SWE-bench Verified. 1M context,
+      128K output. Thinks between tool calls. Reserve for hardest tasks only.
+    allowed_skills: [direct_answer, reason, web_search, database_query, read_document, read_code, extract_field, symbolic_math, execute_python, execute_shell, call_api, parse_structured, fact_check]
+
+skills:
+  - id: direct_answer
+    description: "Answer the question directly without special tools."
+  - id: reason
+    description: "Multi-step logical reasoning or chain-of-thought analysis."
+  - id: web_search
+    description: "Search the web for up-to-date or factual information."
+  - id: database_query
+    description: "Query a structured database (SQL or similar)."
+  - id: read_document
+    description: "Read and comprehend a long document or passage."
+  - id: read_code
+    description: "Read and understand source code."
+  - id: extract_field
+    description: "Extract specific fields or values from structured/unstructured text."
+  - id: parse_structured
+    description: "Parse structured formats (JSON, XML, tables, etc.)."
+  - id: symbolic_math
+    description: "Solve math problems symbolically (algebra, calculus, number theory)."
+  - id: execute_python
+    description: "Write and execute Python code to compute a result."
+  - id: execute_shell
+    description: "Run shell commands for system-level tasks."
+  - id: fact_check
+    description: "Verify factual claims against known information."
+  - id: call_api
+    description: "Call an external API endpoint."
+
+pool_ablations:
+  no_frontier:
+    exclude: [claude-opus-4-6, gpt-5.4, claude-sonnet-4-6]
+  minimal:
+    include: [gemini-2.5-flash, gemini-3-flash-preview, gpt-5.4]
+  mid_only:
+    include: [gemini-3-flash-preview, gpt-5.3-codex, claude-sonnet-4-6]
+  pro_only:
+    include: [gpt-5.3-codex, gpt-5.4, claude-sonnet-4-6, claude-opus-4-6]
