@@ -1,0 +1,71 @@
+[project]
+name = "uno-orchestra"
+version = "0.1.0"
+description = "Uno-Orchestra evaluation, routing, and RL training framework"
+requires-python = ">=3.10"
+
+dependencies = [
+    # Core
+    "pyyaml>=6.0",
+    "tqdm>=4.60",
+    "openai>=1.0",
+    "langchain-core>=0.3",
+    "langchain-openai>=0.3",
+    "datasets>=2.14",
+
+    # Data pipeline
+    "pandas>=2.0",
+    "pyarrow>=12.0",
+
+    # Eval
+    "matplotlib>=3.7",
+    "numpy>=1.24",
+    "pydantic>=2.0",
+    "tomli>=2.0; python_version<'3.11'",
+]
+
+[project.optional-dependencies]
+eval = [
+    "datasets>=2.14",
+    "evaluate>=0.4",
+    "openai>=1.0",
+    "pydantic>=2.0",
+    "sympy>=1.12",
+    "tqdm>=4.60",
+]
+docker = [
+    "swebench>=2.0",
+]
+gateway = [
+    "litellm[proxy]>=1.60",
+]
+serve = [
+    "vllm>=0.6",
+    "pyairports",
+]
+train = [
+    "torch>=2.1",
+    "transformers>=4.40",
+    "deepspeed>=0.14",
+]
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.4",
+]
+mcp = [
+    "mcp>=1.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+# `verl` is vendored as a read-only source tree at the repo root and reachable
+# via the launcher's sys.path injection; it is intentionally excluded from the
+# project's installable package set.
+include = ["configs*", "scripts*", "eval_pipeline*", "env*", "uno_orchestor*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
