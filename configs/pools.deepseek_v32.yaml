@@ -19,8 +19,8 @@ models:
       - execute_shell
 
   - id: deepseek-v4-flash
-    usd_per_1m_input: 0.2288
-    usd_per_1m_output: 0.3432
+    usd_per_1m_input: 1
+    usd_per_1m_output: 2
     api_base: https://api.deepseek.com
     api_key: ${DEEPSEEK_API_KEY}
     description: >

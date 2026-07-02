@@ -30,6 +30,7 @@ class PrimitiveResult:
     billable: bool = False
     backend: str = "local"
     timed_out: bool = False
+    input_tokens: int = 0
 
 
 PRIMITIVES: dict[str, PrimitiveSpec] = {

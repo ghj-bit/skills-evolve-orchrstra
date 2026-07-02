@@ -117,7 +117,6 @@ dependencies:
       - typing-inspection==0.4.2
       - tzdata==2026.2
       - unidiff==0.7.5
-      - uno-orchestra==0.1.0
       - urllib3==2.7.0
       - uuid-utils==0.16.1
       - virtualenv==21.5.1

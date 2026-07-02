@@ -100,6 +100,7 @@ def _combine(skill_id: str, parts: list[tuple[str, PrimitiveResult]]) -> Primiti
     return PrimitiveResult(
         text=text,
         output_tokens=sum(part.output_tokens for _, part in parts),
+        input_tokens=sum(part.input_tokens for _, part in parts),
         billable=any(part.billable for _, part in parts),
         backend=f"skill:{skill_id}",
         timed_out=any(part.timed_out for _, part in parts),
@@ -110,6 +111,7 @@ def _with_backend(result: PrimitiveResult, skill_id: str) -> PrimitiveResult:
     return PrimitiveResult(
         text=result.text,
         output_tokens=result.output_tokens,
+        input_tokens=result.input_tokens,
         billable=result.billable,
         backend=f"skill:{skill_id}/{result.backend}",
         timed_out=result.timed_out,

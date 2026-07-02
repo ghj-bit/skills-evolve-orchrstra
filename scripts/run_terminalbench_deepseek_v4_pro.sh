@@ -39,9 +39,8 @@ PASS_K="${PASS_K:-2}"
 MAX_TASKS="${MAX_TASKS:-}"
 export TERMINALBENCH_TASK_START="${TERMINALBENCH_TASK_START:-1}"
 export TERMINALBENCH_TASK_END="${TERMINALBENCH_TASK_END:-}"
-# Previous task set:
-# bn-fit-modify,cancel-async-tasks,code-from-image,configure-git-webserver,count-dataset-tokens,extract-elf,build-pov-ray,circuit-fibsqrt,compile-compcert
-export TERMINALBENCH_TASK_IDS="${TERMINALBENCH_TASK_IDS:-bn-fit-modify,adaptive-rejection-sampler}"
+# Empty TERMINALBENCH_TASK_IDS means run every Terminal-Bench task discovered by the loader.
+export TERMINALBENCH_TASK_IDS="${TERMINALBENCH_TASK_IDS:-}"
 export TERMINALBENCH_VERBOSE="${TERMINALBENCH_VERBOSE:-1}"
 export SUBAGENT_INCLUDE_STEP_LOGS="${SUBAGENT_INCLUDE_STEP_LOGS:-0}"
 export SUBAGENT_ENABLE_SKILLS="${SUBAGENT_ENABLE_SKILLS:-0}"

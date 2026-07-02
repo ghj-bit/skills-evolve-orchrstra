@@ -56,9 +56,11 @@ class LangChainSubAgentBackend:
         response = client.invoke([SystemMessage(content=sys_prompt), HumanMessage(content=user_content)])
         text = _content_to_text(getattr(response, "content", ""))
         output_tokens = _output_tokens(response)
+        input_tokens = _input_tokens(response)
         return PrimitiveResult(
             text=text.strip(),
             output_tokens=output_tokens,
+            input_tokens=input_tokens,
             billable=True,
             backend=self.name,
         )
@@ -126,6 +128,22 @@ def _output_tokens(response: Any) -> int:
     response_metadata = getattr(response, "response_metadata", None) or {}
     token_usage = response_metadata.get("token_usage") or response_metadata.get("usage") or {}
     for key in ("completion_tokens", "output_tokens"):
+        value = token_usage.get(key)
+        if value is not None:
+            return int(value)
+    return 0
+
+
+def _input_tokens(response: Any) -> int:
+    usage_metadata = getattr(response, "usage_metadata", None) or {}
+    for key in ("input_tokens", "prompt_tokens"):
+        value = usage_metadata.get(key)
+        if value is not None:
+            return int(value)
+
+    response_metadata = getattr(response, "response_metadata", None) or {}
+    token_usage = response_metadata.get("token_usage") or response_metadata.get("usage") or {}
+    for key in ("prompt_tokens", "input_tokens"):
         value = token_usage.get(key)
         if value is not None:
             return int(value)

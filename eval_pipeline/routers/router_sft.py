@@ -88,10 +88,14 @@ class UnoSFT(BaseRouter):
                 Route(round=round_n, subtask=subtask_id, model=model, skill=skill, query=query),
                 question,
             )
-            cost = compute_cost(model, result.output_tokens) if result.billable else 0.0
-            return result.text, result.output_tokens, cost, result.backend
+            cost = (
+                compute_cost(model, result.output_tokens, result.input_tokens)
+                if result.billable
+                else 0.0
+            )
+            return result.text, result.input_tokens, result.output_tokens, cost, result.backend
         except Exception as e:
-            return f"API error: {str(e)[:200]}", 0, 0.0, "harness_error"
+            return f"API error: {str(e)[:200]}", 0, 0, 0.0, "harness_error"
 
     def route(self, question: str, context: dict = None) -> RouteResult:
         messages = [
@@ -100,7 +104,7 @@ class UnoSFT(BaseRouter):
         ]
         full_trace = ""
         all_models, all_skills, all_backends = [], [], []
-        total_cost, total_tokens, route_count = 0.0, 0, 0
+        total_cost, prompt_tokens, completion_tokens, route_count = 0.0, 0, 0, 0
 
         for round_idx in range(self.max_rounds):
             # Get assistant response
@@ -136,7 +140,7 @@ class UnoSFT(BaseRouter):
             obs_parts = []
             for round_n, subtask_id, model, skill, query in routes:
                 route_count += 1
-                text, tokens, cost, backend = self._call_sub_agent(
+                text, input_tokens, output_tokens, cost, backend = self._call_sub_agent(
                     int(round_n),
                     int(subtask_id),
                     model,
@@ -154,7 +158,8 @@ class UnoSFT(BaseRouter):
                 all_models.append(model)
                 all_skills.append(skill)
                 all_backends.append(backend)
-                total_tokens += tokens
+                prompt_tokens += input_tokens
+                completion_tokens += output_tokens
                 total_cost += cost
                 obs_parts.append(f'<obs subtask="{subtask_id}">{text}</obs>')
 
@@ -178,7 +183,7 @@ class UnoSFT(BaseRouter):
             routed_skills=all_skills,
             routed_backends=all_backends,
             total_cost=total_cost,
-            total_tokens=total_tokens,
-            prompt_tokens=0,
-            completion_tokens=total_tokens,
+            total_tokens=prompt_tokens + completion_tokens,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
         )
