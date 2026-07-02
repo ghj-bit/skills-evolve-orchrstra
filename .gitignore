@@ -59,6 +59,7 @@
 !data/rl/*.yaml
 
 # macOS / editor noise
+.env
 .DS_Store
 .vscode/
 .idea/

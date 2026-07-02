@@ -4,6 +4,7 @@ Uses schema v1.1 with real API sub-agent calls (same as RL training env).
 """
 import os
 import re
+import sys
 import openai
 from .base import BaseRouter, RouteResult
 from ..config import DEFAULT_LOCAL_BASE, DEFAULT_API_BASE, compute_cost, resolve_model
@@ -26,20 +27,38 @@ SYSTEM_PROMPT_PATH = os.environ.get(
 )
 
 
+def _verbose_responses_enabled() -> bool:
+    return os.environ.get("UNO_VERBOSE_RESPONSES", "").lower() in {"1", "true", "yes", "on"}
+
+
+def _print_verbose_block(title: str, text: str, limit: int = 4000) -> None:
+    if not _verbose_responses_enabled():
+        return
+    body = str(text)
+    if len(body) > limit:
+        body = body[:limit] + f"\n... [truncated {len(body) - limit} chars]"
+    encoding = sys.stdout.encoding or "utf-8"
+    safe_body = body.encode(encoding, errors="replace").decode(encoding, errors="replace")
+    safe_title = title.encode(encoding, errors="replace").decode(encoding, errors="replace")
+    print(f"\n===== {safe_title} =====")
+    print(safe_body)
+    print(f"===== /{safe_title} =====", flush=True)
+
+
 class UnoSFT(BaseRouter):
     """Uno SFT checkpoint — learned routing with decomposition, no RL."""
 
     def __init__(self, local_base=DEFAULT_LOCAL_BASE, api_base=DEFAULT_API_BASE,
-                 api_key="EMPTY", model_name="Uno-SFT",
+                 api_key="EMPTY", model_name="Uno-SFT", local_api_key="EMPTY",
                  max_rounds=3, system_prompt=None):
-        self.local = openai.OpenAI(base_url=local_base, api_key="EMPTY")
+        self.local = openai.OpenAI(base_url=local_base, api_key=local_api_key)
         self.harness = build_default_harness(
             api_key=api_key,
             base_url=api_base,
             model_resolver=resolve_model,
         )
         self.model_name = model_name
-        self.max_rounds = max_rounds
+        self.max_rounds = int(os.environ.get("UNO_MAX_ROUNDS", max_rounds))
         # Load system prompt
         if system_prompt:
             self.system_prompt = system_prompt
@@ -97,6 +116,10 @@ class UnoSFT(BaseRouter):
                 full_trace += f"\n[ERROR: {e}]"
                 break
 
+            _print_verbose_block(
+                f"Planner response round {round_idx + 1} model={self.model_name}",
+                assistant_text,
+            )
             full_trace += f"\n[ASSISTANT]\n{assistant_text}\n[/ASSISTANT]\n"
             messages.append({"role": "assistant", "content": assistant_text})
 
@@ -120,6 +143,13 @@ class UnoSFT(BaseRouter):
                     skill,
                     query,
                     question,
+                )
+                _print_verbose_block(
+                    (
+                        f"Route response round={round_n} subtask={subtask_id} "
+                        f"model={model} skill={skill} backend={backend}"
+                    ),
+                    text,
                 )
                 all_models.append(model)
                 all_skills.append(skill)

@@ -1,56 +1,21 @@
-# Example LiteLLM proxy config for the worker API gateway.
+# LiteLLM proxy config for two OpenAI-compatible worker endpoints.
 #
 # Start:
-#   pip install -e '.[gateway]'
 #   litellm --config configs/litellm.example.yaml --host 0.0.0.0 --port 9000
 #
 # Then set:
 #   API_BASE=http://localhost:9000/v1
-#
-# Replace the provider model env vars with models/accounts you actually have.
-# The model_name fields intentionally match configs/pools.yaml.
+#   API_KEY=empty
 
 model_list:
-  - model_name: gemini-2.5-flash-lite
+  - model_name: qwen3-8B
     litellm_params:
-      model: os.environ/GEMINI_FLASH_LITE_MODEL
-      api_key: os.environ/GEMINI_API_KEY
+      model: openai/qwen3-8B
+      api_base: https://notebook-inspire.sii.edu.cn/ws-9dcc0e1f-80a4-4af2-bc2f-0e352e7b17e6/project-b795c114-135a-40db-b3d0-19b60f25237b/user-543feed4-0be2-4972-8987-a324af06c93f/vscode/4a7c22e1-2ea5-4c8a-8f1e-7c47a4734b85/2f12fb9f-3470-409b-9f00-47ccc9d50aeb/proxy/8042/v1
+      api_key: empty
 
-  - model_name: gemini-2.5-flash
+  - model_name: deepseek
     litellm_params:
-      model: os.environ/GEMINI_FLASH_MODEL
-      api_key: os.environ/GEMINI_API_KEY
-
-  - model_name: kimi-k2.5
-    litellm_params:
-      model: os.environ/KIMI_MODEL
-      api_key: os.environ/KIMI_API_KEY
-      api_base: os.environ/KIMI_API_BASE
-
-  - model_name: gemini-3-flash-preview
-    litellm_params:
-      model: os.environ/GEMINI_3_FLASH_MODEL
-      api_key: os.environ/GEMINI_API_KEY
-
-  - model_name: gpt-5.3-codex
-    litellm_params:
-      model: os.environ/CODEX_WORKER_MODEL
-      api_key: os.environ/OPENAI_API_KEY
-
-  - model_name: gpt-5.4
-    litellm_params:
-      model: os.environ/GPT_WORKER_MODEL
-      api_key: os.environ/OPENAI_API_KEY
-
-  - model_name: claude-sonnet-4-6
-    litellm_params:
-      model: os.environ/CLAUDE_SONNET_MODEL
-      api_key: os.environ/ANTHROPIC_API_KEY
-
-  - model_name: claude-opus-4-6
-    litellm_params:
-      model: os.environ/CLAUDE_OPUS_MODEL
-      api_key: os.environ/ANTHROPIC_API_KEY
-
-general_settings:
-  master_key: os.environ/LITELLM_MASTER_KEY
+      model: openai/deepseek
+      api_base: https://ai-notebook-inspire.sii.edu.cn/ws-9dcc0e1f-80a4-4af2-bc2f-0e352e7b17e6/project-b795c114-135a-40db-b3d0-19b60f25237b/user-543feed4-0be2-4972-8987-a324af06c93f/vscode/4ff709dd-915e-4392-8a69-12c61dc95edb/ae01f99f-3457-4c25-a7ce-ed967ad2ff02/proxy/8055/v1
+      api_key: empty

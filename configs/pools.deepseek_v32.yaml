@@ -1,0 +1,79 @@
+policy_models:
+  - deepseek-v4-pro
+  - deepseek-v4-flash
+  - Qwen/Qwen3-8B
+  - openai/gpt-oss-120b:free
+
+models:
+  - id: deepseek-v4-pro
+    usd_per_1m_input: 3
+    usd_per_1m_output: 6
+    description: >
+      DeepSeek chat model with thinking support, 1M context, JSON output, and
+      function calling. Good for planner routing, coding, and general reasoning.
+    allowed_skills:
+      - direct_answer
+      - reason
+      - read_code
+      - execute_python
+      - execute_shell
+
+  - id: deepseek-v4-flash
+    usd_per_1m_input: 0.2288
+    usd_per_1m_output: 0.3432
+    api_base: https://api.deepseek.com
+    api_key: ${DEEPSEEK_API_KEY}
+    description: >
+      DeepSeek flash model served through the DeepSeek OpenAI-compatible API.
+      Used for lower-cost direct and planner Terminal-Bench runs.
+    allowed_skills:
+      - direct_answer
+      - reason
+      - read_code
+      - execute_python
+      - execute_shell
+
+  - id: Qwen/Qwen3-8B
+    usd_per_1m_input: 0.072
+    usd_per_1m_output: 0.287
+    api_base: https://api.siliconflow.com/v1
+    api_key: ${SILICONFLOW_API_KEY}
+    description: >
+      Alibaba Qwen3 dense 8B model served through SiliconFlow. Hybrid thinking
+      model for general chat, coding, math, and efficient agent worker calls.
+    allowed_skills:
+      - direct_answer
+      - reason
+      - read_code
+      - execute_python
+      - execute_shell
+
+  - id: openai/gpt-oss-120b:free
+    usd_per_1m_input: 0.0
+    usd_per_1m_output: 0.0
+    api_base: https://openrouter.ai/api/v1
+    api_key: ${OPENROUTER_API_KEY}
+    description: >
+      OpenRouter free endpoint for OpenAI GPT-OSS 120B. Used for direct
+      Terminal-Bench baselines with the OpenRouter OpenAI-compatible API.
+    allowed_skills:
+      - direct_answer
+      - reason
+      - read_code
+      - execute_python
+      - execute_shell
+
+skills:
+  - id: direct_answer
+    description: "Answer the question directly without special tools."
+  - id: reason
+    description: "Multi-step logical reasoning or chain-of-thought analysis."
+  - id: read_code
+    description: "Read and understand source code."
+  - id: execute_python
+    description: "Write and execute Python code to compute a result."
+  - id: execute_shell
+    description: "Run shell commands for system-level tasks."
+
+fallbacks: {}
+pool_ablations: {}

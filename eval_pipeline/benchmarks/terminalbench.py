@@ -1,33 +1,36 @@
 """
-Terminal-Bench 2.0 — Planner + SubAgent pipeline.
+Terminal-Bench 2.0 鈥?Planner + SubAgent pipeline.
 
 Two levels of agents, both our own code:
 
   Planner (``router.chat_completions``)
-    → decides ``delegate_task(worker_model, instruction)`` or ``submit(reason)``
+    鈫?decides ``delegate_task(worker_model, instruction)`` or ``submit(reason)``
 
   SubAgent (``uno_orchestor.agents.subagent.SubAgent``)
-    → runs multi-turn shell commands inside the Docker container,
+    鈫?runs multi-turn shell commands inside the Docker container,
       observes output, reports a structured status back to the Planner
 
 The planner's view is a chat-completions call with two OpenAI tools:
 ``delegate_task`` and ``submit``. Routers that participate inherit the default
 ``BaseRouter.chat_completions`` (Direct, Oracle, Random) or override it with
 their own orchestration (PlannerRouter / UnoSFT). When the planner
-calls ``submit`` — or the attempt budget is exhausted — we run the container's
+calls ``submit`` 鈥?or the attempt budget is exhausted 鈥?we run the container's
 ``test.sh`` via ``DockerExecutor.run_tests()`` and read the reward file.
 """
 
 from __future__ import annotations
 
 import asyncio
+import copy
 import glob
 import json
 import logging
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime, timezone
 
 from .base import BaseBenchmark, Task, VerifyResult
 
@@ -46,6 +49,28 @@ HARBOR_TASKS_DIR = os.environ.get(
 COMPOSE_YAML = (
     Path(__file__).parent.parent / "executors" / "docker-compose-build.yaml"
 )
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+
+
+def _step_timestamps_enabled() -> bool:
+    return os.environ.get("TERMINALBENCH_STEP_TIMESTAMPS", "1").strip().lower() not in {
+        "",
+        "0",
+        "false",
+        "no",
+        "off",
+    }
+
+
+def _log_step_start(task_id: str, phase: str, **fields: Any) -> None:
+    if not _step_timestamps_enabled():
+        return
+    details = " ".join(f"{key}={value}" for key, value in fields.items() if value is not None)
+    suffix = f" {details}" if details else ""
+    print(f"[{_now_iso()}] [TerminalBench] task={task_id} phase={phase}{suffix}", flush=True)
 
 
 # ----------------------------------------------------------------------
@@ -119,8 +144,8 @@ TOOLS: List[Dict[str, Any]] = [
                     "worker_model": {
                         "type": "string",
                         "description": (
-                            "Worker model id, e.g. 'Qwen/Qwen2.5-7B-Instruct', "
-                            "'claude-opus-4-6', 'gpt-5.3-codex'."
+                            "Worker model id. Use one of the allowed worker "
+                            "models listed in the task prompt."
                         ),
                     },
                     "instruction": {
@@ -180,16 +205,142 @@ FLAT_TOOLS: List[Dict[str, Any]] = [
             },
         },
     },
-    TOOLS[1],  # submit tool — same as hierarchical mode
+    TOOLS[1],  # submit tool 鈥?same as hierarchical mode
 ]
+
+
+def _planner_tools(worker_pool: Optional[List[str]]) -> List[Dict[str, Any]]:
+    tools = copy.deepcopy(TOOLS)
+    if worker_pool:
+        worker_schema = tools[0]["function"]["parameters"]["properties"]["worker_model"]
+        worker_schema["enum"] = list(worker_pool)
+        worker_schema["description"] = (
+            "Worker model id. Must be one of: " + ", ".join(worker_pool)
+        )
+    return tools
+
+
+def _usage_from_response(resp: Dict[str, Any], default_model: str = "") -> Dict[str, Any]:
+    prompt_tokens = int(resp.get("prompt_tokens", 0) or 0)
+    completion_tokens = int(resp.get("completion_tokens", 0) or 0)
+    model = resp.get("model") or default_model
+    cost = 0.0
+    if model:
+        try:
+            from ..config import compute_cost
+            cost = compute_cost(model, completion_tokens, prompt_tokens)
+        except Exception:
+            cost = 0.0
+    return {
+        "model": model,
+        "cost": cost,
+        "tokens": prompt_tokens + completion_tokens,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+    }
+
+
+def _sum_usage(items: List[Dict[str, Any]]) -> Dict[str, Any]:
+    return {
+        "cost": sum(float(i.get("cost", 0) or 0) for i in items),
+        "tokens": sum(int(i.get("tokens", 0) or 0) for i in items),
+        "prompt_tokens": sum(int(i.get("prompt_tokens", 0) or 0) for i in items),
+        "completion_tokens": sum(int(i.get("completion_tokens", 0) or 0) for i in items),
+    }
+
+
+def _debug_enabled(name: str = "DIRECT_ROUTER_DEBUG") -> bool:
+    value = os.environ.get(name, "0").strip().lower()
+    return value not in {"", "0", "false", "no", "off"}
+
+
+def _short(value: Any, limit: int = 1200) -> str:
+    text = "" if value is None else str(value)
+    return text if len(text) <= limit else text[:limit] + "...<truncated>"
+
+
+def _resolve_model_endpoint(
+    model_id: str,
+    default_api_base: str,
+    default_api_key: str,
+) -> tuple[str, str]:
+    try:
+        from configs import load_pools
+
+        pools = load_pools()
+        for model_cfg in pools.get("raw", {}).get("models", []):
+            if model_cfg.get("id") == model_id:
+                return (
+                    model_cfg.get("api_base") or default_api_base,
+                    model_cfg.get("api_key") or default_api_key,
+                )
+    except Exception:
+        pass
+    return default_api_base, default_api_key
+
+
+def _write_json_atomic(path: Path, payload: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    with tmp_path.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_path, path)
+
+
+def _safe_name(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("_") or "unknown"
+
+
+def _prompt_dump_task_dir(task_id: str) -> Optional[Path]:
+    root = os.environ.get("TERMINALBENCH_PROMPT_DUMP_DIR", "").strip()
+    if not root:
+        return None
+    try:
+        limit = max(1, int(os.environ.get("TERMINALBENCH_PROMPT_DUMP_TASK_LIMIT", "1")))
+    except ValueError:
+        limit = 1
+    root_path = Path(root)
+    root_path.mkdir(parents=True, exist_ok=True)
+    task_dir = root_path / _safe_name(task_id)
+    if task_dir.exists():
+        return task_dir
+    existing = [p for p in root_path.iterdir() if p.is_dir()]
+    if len(existing) >= limit:
+        return None
+    task_dir.mkdir(parents=True, exist_ok=True)
+    return task_dir
+
+
+def _dump_prompt_messages(
+    task_id: str,
+    filename: str,
+    messages: List[Dict[str, Any]],
+    *,
+    tools: Optional[List[Dict[str, Any]]] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> None:
+    task_dir = _prompt_dump_task_dir(task_id)
+    if task_dir is None:
+        return
+    payload: Dict[str, Any] = {
+        "task_id": task_id,
+        "metadata": metadata or {},
+        "messages": messages,
+    }
+    if tools is not None:
+        payload["tools"] = tools
+    _write_json_atomic(task_dir / filename, payload)
 
 
 def _budget_note(attempt_idx: int, max_attempts: int) -> str:
     remaining = max_attempts - attempt_idx
     if remaining <= 2:
-        return f"🚨 CRITICAL: Only {remaining} attempt(s) left — submit now if nearly done."
+        return f"馃毃 CRITICAL: Only {remaining} attempt(s) left 鈥?submit now if nearly done."
     if remaining <= 4:
-        return f"⚠️ Warning: {remaining} attempts remaining — plan carefully."
+        return f"鈿狅笍 Warning: {remaining} attempts remaining 鈥?plan carefully."
     return f"Budget: {remaining}/{max_attempts} attempts remaining."
 
 
@@ -232,19 +383,38 @@ class TerminalBench(BaseBenchmark):
     # ----- task loading ------------------------------------------------
 
     def load(self, max_tasks: Optional[int] = None) -> List[Task]:
+        task_start = int(os.environ.get("TERMINALBENCH_TASK_START", "1") or "1")
+        task_end_raw = os.environ.get("TERMINALBENCH_TASK_END", "").strip()
+        task_end = int(task_end_raw) if task_end_raw else None
+        task_ids_raw = os.environ.get("TERMINALBENCH_TASK_IDS", "").strip()
+        allowed_task_ids = {
+            item.strip()
+            for item in re.split(r"[,\s]+", task_ids_raw)
+            if item.strip()
+        }
         tasks: List[Task] = []
-        for name in sorted(os.listdir(self.harbor_dir)):
+        selected_names = sorted(os.listdir(self.harbor_dir))
+        for task_index, name in enumerate(selected_names, start=1):
+            if allowed_task_ids and name not in allowed_task_ids:
+                continue
+            if task_index < task_start:
+                continue
+            if task_end is not None and task_index > task_end:
+                break
             base = os.path.join(self.harbor_dir, name)
             if not os.path.isdir(base):
                 continue
-            tomls = glob.glob(os.path.join(base, "*/task.toml"))
+            tomls = glob.glob(os.path.join(base, "task.toml"))
+            if not tomls:
+                tomls = glob.glob(os.path.join(base, "*/task.toml"))
             if not tomls:
                 continue
             task_dir = os.path.dirname(tomls[0])
             instr_path = os.path.join(task_dir, "instruction.md")
             instruction = ""
             if os.path.exists(instr_path):
-                instruction = open(instr_path).read().strip()
+                with open(instr_path, encoding="utf-8") as f:
+                    instruction = f.read().strip()
             if not instruction:
                 continue
             with open(os.path.join(task_dir, "task.toml"), "rb") as f:
@@ -262,7 +432,7 @@ class TerminalBench(BaseBenchmark):
         return tasks
 
     def extract_answer(self, router_output: str, task: Task) -> str:
-        return router_output  # unused — interactive pipeline
+        return router_output  # unused 鈥?interactive pipeline
 
     def verify(self, task: Task, answer: str, logs_dir=None) -> VerifyResult:
         raise NotImplementedError(
@@ -287,7 +457,7 @@ class TerminalBench(BaseBenchmark):
     # ----- main interactive pipeline -----------------------------------
 
     # ------------------------------------------------------------------
-    # Hierarchical two-step pipeline: Planner → Router → Worker, matching
+    # Hierarchical two-step pipeline: Planner 鈫?Router 鈫?Worker, matching
     # the SFT training schema (plan_subtask + finish / route(model, skill)).
     # ------------------------------------------------------------------
 
@@ -438,6 +608,8 @@ class TerminalBench(BaseBenchmark):
         planner_answer: Optional[str] = None
         last_error: Optional[str] = None
         planner_result: Dict[str, Any] = {}
+        started_at = _now_iso()
+        start_perf = time.perf_counter()
         try:
             await executor.start_container()
             planner_result = await arun_planner(
@@ -450,6 +622,7 @@ class TerminalBench(BaseBenchmark):
             )
             planner_answer = planner_result.get("answer")
             try:
+                _log_step_start(task.task_id, "verifier_start", mode="planner")
                 reward = float(await executor.run_tests() or 0.0)
             except Exception as e:
                 last_error = f"run_tests failed: {e}"
@@ -465,19 +638,23 @@ class TerminalBench(BaseBenchmark):
 
         # Save trajectory
         try:
-            with (base / "trajectory.json").open("w") as f:
-                json.dump({
-                    "task_id": task.task_id,
-                    "mode": "hierarchical",
-                    "planner_model": planner_model,
-                    "router_model": router_model,
-                    "random_worker": random_worker,
-                    "reward": reward,
-                    "planner_answer": planner_answer,
-                    "last_error": last_error,
-                    "subtasks": planner_result.get("subtasks", []),
-                    "routing_decisions": routing_decisions,
-                }, f, indent=2, ensure_ascii=False)
+            ended_at = _now_iso()
+            elapsed_seconds = round(time.perf_counter() - start_perf, 3)
+            _write_json_atomic(base / "trajectory.json", {
+                "task_id": task.task_id,
+                "mode": "hierarchical",
+                "started_at": started_at,
+                "ended_at": ended_at,
+                "elapsed_seconds": elapsed_seconds,
+                "planner_model": planner_model,
+                "router_model": router_model,
+                "random_worker": random_worker,
+                "reward": reward,
+                "planner_answer": planner_answer,
+                "last_error": last_error,
+                "subtasks": planner_result.get("subtasks", []),
+                "routing_decisions": routing_decisions,
+            })
         except Exception:
             pass
 
@@ -509,9 +686,9 @@ class TerminalBench(BaseBenchmark):
         Args:
             task: A Task from ``self.load()``.
             router: A BaseRouter with ``chat_completions(messages, tools)``.
-            worker_pool: Hierarchical mode only — worker models the Planner may
+            worker_pool: Hierarchical mode only 鈥?worker models the Planner may
                 delegate to. Ignored in flat mode.
-            subagent_api_base: Hierarchical mode — base URL for the SubAgent's
+            subagent_api_base: Hierarchical mode 鈥?base URL for the SubAgent's
                 worker LLM. Ignored in flat mode.
             subagent_api_key: SubAgent API key (hierarchical mode).
             logs_dir: Where to save trajectory + commands log.
@@ -521,6 +698,7 @@ class TerminalBench(BaseBenchmark):
                 delegation layer. Useful for Direct(X) baselines.
         """
         loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         try:
             if flat_mode:
                 return loop.run_until_complete(
@@ -530,6 +708,7 @@ class TerminalBench(BaseBenchmark):
                 self._run_async(task, router, worker_pool, subagent_api_base, subagent_api_key, logs_dir)
             )
         finally:
+            asyncio.set_event_loop(None)
             loop.close()
 
     async def _run_async(
@@ -566,13 +745,6 @@ class TerminalBench(BaseBenchmark):
             from ..config import DEFAULT_API_BASE
             subagent_api_base = DEFAULT_API_BASE
 
-        subagent = SubAgent(
-            api_base=subagent_api_base,
-            api_key=subagent_api_key,
-            max_steps=self.subagent_max_steps,
-            cmd_timeout=self.subagent_cmd_timeout,
-        )
-
         executor = DockerExecutor(
             task_id=task.task_id,
             task_dir=task_dir,
@@ -588,26 +760,51 @@ class TerminalBench(BaseBenchmark):
             {"role": "system", "content": PLANNER_SYSTEM_PROMPT},
             {"role": "user", "content": (
                 f"## Task\n{instruction}\n\n"
+                f"## Allowed worker models\n{', '.join(worker_pool or [])}\n\n"
                 f"## Planner budget\nYou have {self.max_attempts} delegation attempts.\n"
             )},
         ]
 
         trajectory: List[Dict[str, Any]] = []
+        planner_usages: List[Dict[str, Any]] = []
+        subagent_usages: List[Dict[str, Any]] = []
+        routed_models: List[str] = []
         reward = 0.0
         submit_called = False
         last_error: Optional[str] = None
+        planner_tools = _planner_tools(worker_pool)
+        started_at = _now_iso()
+        start_perf = time.perf_counter()
 
         try:
+            _log_step_start(task.task_id, "container_start", mode="planner")
             await executor.start_container()
 
             for attempt in range(self.max_attempts):
+                _log_step_start(
+                    task.task_id,
+                    "planner_attempt_start",
+                    attempt=attempt + 1,
+                    max_attempts=self.max_attempts,
+                )
                 # Inject a short budget note (not persisted in trajectory ctx)
                 live_messages = messages + [
                     {"role": "system", "content": _budget_note(attempt + 1, self.max_attempts)}
                 ]
+                _dump_prompt_messages(
+                    task.task_id,
+                    f"planner_attempt_{attempt + 1:02d}.json",
+                    live_messages,
+                    tools=planner_tools,
+                    metadata={
+                        "kind": "planner",
+                        "attempt": attempt + 1,
+                        "max_attempts": self.max_attempts,
+                    },
+                )
 
                 try:
-                    resp = router.chat_completions(live_messages, tools=TOOLS)
+                    resp = router.chat_completions(live_messages, tools=planner_tools)
                 except NotImplementedError as e:
                     last_error = f"router {type(router).__name__} lacks chat_completions: {e}"
                     break
@@ -617,6 +814,11 @@ class TerminalBench(BaseBenchmark):
 
                 content = resp.get("content") or ""
                 tool_calls = resp.get("tool_calls") or []
+                planner_usage = _usage_from_response(
+                    resp,
+                    getattr(router, "planner_model", getattr(router, "model_name", "")),
+                )
+                planner_usages.append(planner_usage)
                 assistant_msg: Dict[str, Any] = {"role": "assistant", "content": content or None}
                 if tool_calls:
                     assistant_msg["tool_calls"] = [
@@ -629,11 +831,12 @@ class TerminalBench(BaseBenchmark):
                 trajectory.append({
                     "attempt": attempt + 1,
                     "planner_content": content,
+                    "planner_usage": planner_usage,
                     "tool_calls": tool_calls,
                 })
 
                 if not tool_calls:
-                    # No structured action — treat as planner refusal and stop.
+                    # No structured action 鈥?treat as planner refusal and stop.
                     last_error = "planner returned no tool call"
                     break
 
@@ -646,6 +849,12 @@ class TerminalBench(BaseBenchmark):
 
                     if name == "submit":
                         reason = args.get("reason", "(no reason)")
+                        _log_step_start(
+                            task.task_id,
+                            "planner_submit",
+                            attempt=attempt + 1,
+                            reason=_short(reason, 120),
+                        )
                         trajectory[-1]["submit"] = {"reason": reason}
                         messages.append({
                             "role": "tool", "tool_call_id": tc_id,
@@ -660,6 +869,10 @@ class TerminalBench(BaseBenchmark):
                         # Clamp worker to the allowed pool for baselines
                         if worker_pool and worker_model not in worker_pool:
                             worker_model = worker_pool[0]
+                            args["worker_model"] = worker_model
+                            for saved_tc in trajectory[-1].get("tool_calls", []):
+                                if saved_tc.get("id") == tc_id:
+                                    saved_tc["arguments"] = args
                         if not subtask_instruction.strip():
                             msg = "Empty instruction; delegate_task skipped."
                             messages.append({"role": "tool", "tool_call_id": tc_id, "content": msg})
@@ -667,12 +880,31 @@ class TerminalBench(BaseBenchmark):
                             continue
 
                         try:
+                            _log_step_start(
+                                task.task_id,
+                                "delegate_task_start",
+                                attempt=attempt + 1,
+                                worker_model=worker_model,
+                                tool_call_id=tc_id,
+                            )
+                            worker_api_base, worker_api_key = _resolve_model_endpoint(
+                                worker_model,
+                                subagent_api_base,
+                                subagent_api_key,
+                            )
+                            subagent = SubAgent(
+                                api_base=worker_api_base,
+                                api_key=worker_api_key,
+                                max_steps=self.subagent_max_steps,
+                                cmd_timeout=self.subagent_cmd_timeout,
+                            )
                             sub_result = await subagent.run(
                                 model=worker_model,
                                 task_instruction=subtask_instruction,
                                 original_question=instruction,
                                 executor=executor,
                                 agent_logs_dir=agent_logs,
+                                tool_call_id=tc_id,
                             )
                         except Exception as e:
                             sub_result = {
@@ -680,7 +912,17 @@ class TerminalBench(BaseBenchmark):
                                 "completed": [], "issues": [str(e)[:300]],
                                 "message": f"SubAgent crashed: {e}",
                                 "steps_taken": 0, "model": worker_model, "commands_log": [],
+                                "cost": 0.0, "tokens": 0,
+                                "prompt_tokens": 0, "completion_tokens": 0,
                             }
+                        routed_models.append(worker_model)
+                        subagent_usages.append({
+                            "model": worker_model,
+                            "cost": float(sub_result.get("cost", 0) or 0),
+                            "tokens": int(sub_result.get("tokens", 0) or 0),
+                            "prompt_tokens": int(sub_result.get("prompt_tokens", 0) or 0),
+                            "completion_tokens": int(sub_result.get("completion_tokens", 0) or 0),
+                        })
 
                         planner_view = SubAgent.format_result_for_planner(sub_result)
                         messages.append({
@@ -693,6 +935,9 @@ class TerminalBench(BaseBenchmark):
                             "sub_result": {
                                 k: sub_result.get(k) for k in (
                                     "status", "steps_taken", "completed", "issues", "message",
+                                    "model", "cost", "tokens",
+                                    "prompt_tokens", "completion_tokens",
+                                    "summary_model", "summary_usage", "step_logs",
                                 )
                             },
                         }
@@ -704,8 +949,9 @@ class TerminalBench(BaseBenchmark):
                     submit_called = True
                     break
 
-            # Run tests once — either because planner submitted or budget ran out.
+            # Run tests once 鈥?either because planner submitted or budget ran out.
             try:
+                _log_step_start(task.task_id, "verifier_start", mode="planner")
                 reward = float(await executor.run_tests() or 0.0)
             except Exception as e:
                 last_error = f"run_tests failed: {e}"
@@ -722,27 +968,46 @@ class TerminalBench(BaseBenchmark):
 
         # Save trajectory
         try:
-            with (base / "trajectory.json").open("w") as f:
-                json.dump({
-                    "task_id": task.task_id,
-                    "reward": reward,
-                    "submit_called": submit_called,
-                    "attempts_used": len(trajectory),
-                    "max_attempts": self.max_attempts,
-                    "last_error": last_error,
-                    "trajectory": trajectory,
-                }, f, indent=2, ensure_ascii=False)
+            ended_at = _now_iso()
+            elapsed_seconds = round(time.perf_counter() - start_perf, 3)
+            planner_totals = _sum_usage(planner_usages)
+            subagent_totals = _sum_usage(subagent_usages)
+            total_usage = _sum_usage([planner_totals, subagent_totals])
+            _write_json_atomic(base / "trajectory.json", {
+                "task_id": task.task_id,
+                "started_at": started_at,
+                "ended_at": ended_at,
+                "elapsed_seconds": elapsed_seconds,
+                "reward": reward,
+                "submit_called": submit_called,
+                "attempts_used": len(trajectory),
+                "max_attempts": self.max_attempts,
+                "last_error": last_error,
+                "route_count": len(routed_models),
+                "routed_models": routed_models,
+                "routed_skills": ["delegate_task"] * len(routed_models),
+                "planner_usage": planner_totals,
+                "subagent_usage": subagent_totals,
+                **total_usage,
+                "trajectory": trajectory,
+            })
         except Exception:
             pass
 
         return VerifyResult(
             task.task_id, reward,
             error=last_error,
-            log=json.dumps({"attempts": len(trajectory), "submit": submit_called})[:3000],
+            log=json.dumps({
+                "attempts": len(trajectory),
+                "submit": submit_called,
+                "route_count": len(routed_models),
+                "routed_models": routed_models,
+                **_sum_usage([_sum_usage(planner_usages), _sum_usage(subagent_usages)]),
+            })[:3000],
         )
 
     # ------------------------------------------------------------------
-    # Flat / Direct-baseline pipeline: single model ↔ Docker, no Planner
+    # Flat / Direct-baseline pipeline: single model 鈫?Docker, no Planner
     # ------------------------------------------------------------------
 
     async def _run_flat_async(
@@ -785,17 +1050,33 @@ class TerminalBench(BaseBenchmark):
         ]
 
         trajectory: List[Dict[str, Any]] = []
+        flat_usages: List[Dict[str, Any]] = []
         reward = 0.0
         submit_called = False
         last_error: Optional[str] = None
+        started_at = _now_iso()
+        start_perf = time.perf_counter()
 
         try:
+            _log_step_start(task.task_id, "container_start", mode="flat")
             await executor.start_container()
 
             for step in range(self.subagent_max_steps):
+                _log_step_start(
+                    task.task_id,
+                    "flat_step_start",
+                    step=step + 1,
+                    max_steps=self.subagent_max_steps,
+                )
                 # Budget note (ephemeral)
+                budget_role = (
+                    "user"
+                    if os.environ.get("TERMINALBENCH_BUDGET_AS_USER", "0").lower()
+                    not in {"", "0", "false", "no", "off"}
+                    else "system"
+                )
                 live_messages = messages + [
-                    {"role": "system",
+                    {"role": budget_role,
                      "content": f"Budget: {self.subagent_max_steps - step} command(s) remaining."}
                 ]
 
@@ -810,6 +1091,11 @@ class TerminalBench(BaseBenchmark):
 
                 content = resp.get("content") or ""
                 tool_calls = resp.get("tool_calls") or []
+                usage = _usage_from_response(
+                    resp,
+                    getattr(router, "model_id", getattr(router, "model_name", "")),
+                )
+                flat_usages.append(usage)
                 assistant_msg: Dict[str, Any] = {"role": "assistant", "content": content or None}
                 if tool_calls:
                     assistant_msg["tool_calls"] = [
@@ -821,10 +1107,37 @@ class TerminalBench(BaseBenchmark):
                 trajectory.append({
                     "step": step + 1,
                     "content": content,
+                    "usage": usage,
                     "tool_calls": tool_calls,
                 })
 
                 if not tool_calls:
+                    no_tool_debug = {
+                        "step": step + 1,
+                        "model": usage.get("model"),
+                        "content_preview": _short(content, 2000),
+                        "content_chars": len(content),
+                        "prompt_tokens": usage.get("prompt_tokens"),
+                        "completion_tokens": usage.get("completion_tokens"),
+                        "tokens": usage.get("tokens"),
+                        "last_message_role": messages[-1].get("role") if messages else None,
+                        "last_message_preview": _short(
+                            messages[-1].get("content") if messages else "", 2000
+                        ),
+                    }
+                    trajectory[-1]["no_tool_call_debug"] = no_tool_debug
+                    if _debug_enabled():
+                        print("[TerminalBench flat no-tool-call debug]", flush=True)
+                        print(f"  task_id={task.task_id}", flush=True)
+                        print(f"  step={no_tool_debug['step']}", flush=True)
+                        print(f"  model={no_tool_debug['model']}", flush=True)
+                        print(f"  content_chars={no_tool_debug['content_chars']}", flush=True)
+                        print(f"  prompt_tokens={no_tool_debug['prompt_tokens']}", flush=True)
+                        print(f"  completion_tokens={no_tool_debug['completion_tokens']}", flush=True)
+                        print(f"  tokens={no_tool_debug['tokens']}", flush=True)
+                        print(f"  content_preview={no_tool_debug['content_preview']}", flush=True)
+                        print(f"  last_message_role={no_tool_debug['last_message_role']}", flush=True)
+                        print(f"  last_message_preview={no_tool_debug['last_message_preview']}", flush=True)
                     last_error = "router returned no tool call"
                     break
 
@@ -835,6 +1148,12 @@ class TerminalBench(BaseBenchmark):
                     tc_id = tc.get("id", f"tc_{step}")
 
                     if name == "submit":
+                        _log_step_start(
+                            task.task_id,
+                            "flat_submit",
+                            step=step + 1,
+                            reason=_short(args.get("reason", ""), 120),
+                        )
                         trajectory[-1]["submit"] = {"reason": args.get("reason", "")}
                         messages.append({"role": "tool", "tool_call_id": tc_id,
                                          "content": "Submission received; verifier will run."})
@@ -848,6 +1167,13 @@ class TerminalBench(BaseBenchmark):
                                              "content": "Empty command; ignored."})
                             continue
                         try:
+                            _log_step_start(
+                                task.task_id,
+                                "flat_command_start",
+                                step=step + 1,
+                                timeout=self.subagent_cmd_timeout,
+                                command=_short(command, 200),
+                            )
                             output, exit_code = await executor.execute_command(
                                 command, timeout=self.subagent_cmd_timeout,
                             )
@@ -873,6 +1199,7 @@ class TerminalBench(BaseBenchmark):
                     break
 
             try:
+                _log_step_start(task.task_id, "verifier_start", mode="flat")
                 reward = float(await executor.run_tests() or 0.0)
             except Exception as e:
                 last_error = f"run_tests failed: {e}"
@@ -888,22 +1215,36 @@ class TerminalBench(BaseBenchmark):
                 logger.warning("[%s] cleanup failed: %s", task.task_id, e)
 
         try:
-            with (base / "trajectory.json").open("w") as f:
-                json.dump({
-                    "task_id": task.task_id,
-                    "mode": "flat",
-                    "reward": reward,
-                    "submit_called": submit_called,
-                    "steps_used": len(trajectory),
-                    "max_steps": self.subagent_max_steps,
-                    "last_error": last_error,
-                    "trajectory": trajectory,
-                }, f, indent=2, ensure_ascii=False)
+            ended_at = _now_iso()
+            elapsed_seconds = round(time.perf_counter() - start_perf, 3)
+            flat_usage_totals = _sum_usage(flat_usages)
+            _write_json_atomic(base / "trajectory.json", {
+                "task_id": task.task_id,
+                "mode": "flat",
+                "started_at": started_at,
+                "ended_at": ended_at,
+                "elapsed_seconds": elapsed_seconds,
+                "reward": reward,
+                "submit_called": submit_called,
+                "steps_used": len(trajectory),
+                "max_steps": self.subagent_max_steps,
+                "last_error": last_error,
+                "route_count": 0,
+                "routed_models": [getattr(router, "model_id", getattr(router, "model_name", ""))],
+                "routed_skills": ["execute_command"],
+                "routed_backends": ["direct_flat"],
+                **flat_usage_totals,
+                "trajectory": trajectory,
+            })
         except Exception:
             pass
 
         return VerifyResult(
             task.task_id, reward,
             error=last_error,
-            log=json.dumps({"steps": len(trajectory), "submit": submit_called})[:3000],
+            log=json.dumps({
+                "steps": len(trajectory),
+                "submit": submit_called,
+                **_sum_usage(flat_usages),
+            })[:3000],
         )

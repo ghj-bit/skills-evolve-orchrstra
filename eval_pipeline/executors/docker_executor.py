@@ -13,24 +13,124 @@ from .base_executor import BaseExecutor
 from .docker_manager import DockerComposeEnvVars, DockerComposeManager
 
 
+APT_PIP_MIRROR_INJECTION = """# tbench mirror injection: begin
+RUN set -eux; \\
+    if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then \\
+      sed -i 's|http://archive.ubuntu.com/ubuntu|https://mirrors.tuna.tsinghua.edu.cn/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources; \\
+      sed -i 's|http://security.ubuntu.com/ubuntu|https://mirrors.tuna.tsinghua.edu.cn/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources; \\
+    fi; \\
+    if [ -f /etc/apt/sources.list ]; then \\
+      sed -i 's|http://archive.ubuntu.com/ubuntu|https://mirrors.tuna.tsinghua.edu.cn/ubuntu|g' /etc/apt/sources.list; \\
+      sed -i 's|http://security.ubuntu.com/ubuntu|https://mirrors.tuna.tsinghua.edu.cn/ubuntu|g' /etc/apt/sources.list; \\
+    fi; \\
+    if [ -f /etc/apt/sources.list.d/debian.sources ]; then \\
+      sed -i 's|http://deb.debian.org/debian|https://mirrors.tuna.tsinghua.edu.cn/debian|g' /etc/apt/sources.list.d/debian.sources; \\
+      sed -i 's|http://security.debian.org/debian-security|https://mirrors.tuna.tsinghua.edu.cn/debian-security|g' /etc/apt/sources.list.d/debian.sources; \\
+    fi; \\
+    if [ -f /etc/apt/sources.list ]; then \\
+      sed -i 's|http://deb.debian.org/debian|https://mirrors.tuna.tsinghua.edu.cn/debian|g' /etc/apt/sources.list; \\
+      sed -i 's|http://security.debian.org/debian-security|https://mirrors.tuna.tsinghua.edu.cn/debian-security|g' /etc/apt/sources.list; \\
+    fi; \\
+    printf '%s\\n' \\
+      '[global]' \\
+      'index-url = https://pypi.tuna.tsinghua.edu.cn/simple' \\
+      'trusted-host = pypi.tuna.tsinghua.edu.cn' \\
+      'timeout = 120' \\
+      > /etc/pip.conf
+# tbench mirror injection: end"""
+
+
 def _container_proxy_exports() -> str:
-    """Return shell exports for optional container proxy settings."""
+    """Return shell prefix for Terminal-Bench container proxy settings.
+
+    By default, Terminal-Bench task containers should not inherit host or
+    Docker Desktop proxy settings. A host proxy such as 127.0.0.1:7897 points
+    at the container itself, which breaks apt/pip inside Docker. Set
+    TBENCH_ENABLE_PROXY=1 and TBENCH_*_PROXY explicitly when a container really
+    needs outbound proxy access.
+    """
+    proxy_keys = [
+        "http_proxy", "https_proxy", "all_proxy", "no_proxy",
+        "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+    ]
+    clear_proxy = "; ".join([
+        "unset " + " ".join(proxy_keys),
+        "rm -f /etc/apt/apt.conf.d/00proxy /etc/apt/apt.conf.d/01proxy "
+        "/etc/apt/apt.conf.d/proxy.conf 2>/dev/null || true",
+    ])
+    enabled = os.environ.get("TBENCH_ENABLE_PROXY", "0").strip().lower()
+    if enabled in {"", "0", "false", "no", "off"}:
+        return clear_proxy
+
     mappings = {
-        "http_proxy": os.environ.get("TBENCH_HTTP_PROXY") or os.environ.get("http_proxy"),
-        "https_proxy": os.environ.get("TBENCH_HTTPS_PROXY") or os.environ.get("https_proxy"),
-        "all_proxy": os.environ.get("TBENCH_ALL_PROXY") or os.environ.get("all_proxy"),
-        "no_proxy": os.environ.get("TBENCH_NO_PROXY") or os.environ.get("no_proxy"),
+        "http_proxy": os.environ.get("TBENCH_HTTP_PROXY"),
+        "https_proxy": os.environ.get("TBENCH_HTTPS_PROXY"),
+        "all_proxy": os.environ.get("TBENCH_ALL_PROXY"),
+        "no_proxy": os.environ.get("TBENCH_NO_PROXY"),
     }
     exports = []
     for key, value in mappings.items():
         if not value:
             continue
         exports.append(f"export {key}={sh_quote(value)} {key.upper()}={sh_quote(value)}")
-    return "; ".join(exports)
+    return "; ".join([clear_proxy, *exports])
 
 
 def sh_quote(value: str) -> str:
     return "'" + value.replace("'", "'\"'\"'") + "'"
+
+
+def _dockerfile_from_image(line: str) -> str:
+    """Return the image token from a Dockerfile FROM line."""
+    parts = line.strip().split()
+    if not parts or parts[0].upper() != "FROM":
+        return ""
+    idx = 1
+    while idx < len(parts) and parts[idx].startswith("--"):
+        idx += 1
+    return parts[idx] if idx < len(parts) else ""
+
+
+def _inject_after_from(
+    dockerfile_text: str,
+    insert_lines: list[str],
+    *,
+    skip_scratch: bool = True,
+) -> str:
+    lines = dockerfile_text.splitlines()
+    new_lines: list[str] = []
+    for line in lines:
+        new_lines.append(line)
+        stripped = line.strip()
+        if not stripped.upper().startswith("FROM "):
+            continue
+        image = _dockerfile_from_image(stripped).lower()
+        if skip_scratch and image == "scratch":
+            continue
+        new_lines.extend(insert_lines)
+    suffix = "\n" if dockerfile_text.endswith("\n") else ""
+    return "\n".join(new_lines) + suffix
+
+
+def _validate_injected_dockerfile(
+    original_text: str,
+    modified_text: str,
+    *,
+    expected_mirror_blocks: int,
+) -> None:
+    original_froms = sum(1 for line in original_text.splitlines() if line.strip().upper().startswith("FROM "))
+    modified_froms = sum(1 for line in modified_text.splitlines() if line.strip().upper().startswith("FROM "))
+    if original_froms == 0:
+        raise ValueError("Dockerfile has no FROM instruction")
+    if original_froms != modified_froms:
+        raise ValueError(
+            f"Dockerfile injection changed FROM count: original={original_froms}, modified={modified_froms}"
+        )
+    marker_count = modified_text.count("# tbench mirror injection: begin")
+    if marker_count != expected_mirror_blocks:
+        raise ValueError(
+            f"Dockerfile mirror injection count mismatch: expected={expected_mirror_blocks}, got={marker_count}"
+        )
 
 
 class DockerExecutor(BaseExecutor):
@@ -66,9 +166,16 @@ class DockerExecutor(BaseExecutor):
         self._temp_dockerfile_dir: Optional[Path] = None
         self._use_prebuilt_image: bool = False  # Track if using prebuilt image
 
-    def _create_temp_dockerfile_with_proxy(self, original_dockerfile_dir: Path) -> Path:
+    def _create_temp_dockerfile(self, original_dockerfile_dir: Path) -> Path:
         """
-        Create a temporary copy of Dockerfile with proxy environment variables injected.
+        Create a temporary copy of the task environment.
+
+        The copied Dockerfile is augmented, after each non-scratch FROM, with:
+        - Ubuntu/Debian apt mirror rewrites.
+        - Global pip mirror config.
+        - Optional ENV instructions from env_init.
+
+        The original Dockerfile stays untouched.
         Returns the temporary directory path.
         """
         # Create temporary directory
@@ -80,29 +187,39 @@ class DockerExecutor(BaseExecutor):
         temp_env_dir = temp_dir / "environment"
         shutil.copytree(original_env_dir, temp_env_dir, symlinks=True)
 
-        # Inject proxy variables into the copied Dockerfile
         temp_dockerfile = temp_env_dir / "Dockerfile"
-        if self.env_init:
-            original_content = temp_dockerfile.read_text()
-            lines = original_content.split("\n")
+        original_content = temp_dockerfile.read_text(encoding="utf-8")
+        insert_lines: list[str] = APT_PIP_MIRROR_INJECTION.splitlines()
 
-            # Build ENV instructions
+        if self.env_init:
             env_instructions = []
             for key, value in self.env_init.items():
                 if value:
                     env_instructions.append(f"ENV {key}={value}")
-
             if env_instructions:
-                # Insert ENV after every FROM to support multi-stage builds
-                new_lines = []
-                for line in lines:
-                    new_lines.append(line)
-                    # Insert ENV after each FROM instruction (not FROM ... AS ...)
-                    stripped = line.strip().upper()
-                    if stripped.startswith("FROM "):
-                        new_lines.extend(env_instructions)
+                insert_lines.extend(env_instructions)
 
-                temp_dockerfile.write_text("\n".join(new_lines))
+        expected_mirror_blocks = 0
+        for line in original_content.splitlines():
+            stripped = line.strip()
+            if not stripped.upper().startswith("FROM "):
+                continue
+            image = _dockerfile_from_image(stripped).lower()
+            if image != "scratch":
+                expected_mirror_blocks += 1
+
+        modified_content = _inject_after_from(original_content, insert_lines)
+        _validate_injected_dockerfile(
+            original_content,
+            modified_content,
+            expected_mirror_blocks=expected_mirror_blocks,
+        )
+        temp_dockerfile.write_text(modified_content, encoding="utf-8")
+        logger.info(
+            "Prepared temporary Dockerfile with %d mirror injection block(s): %s",
+            expected_mirror_blocks,
+            temp_dockerfile,
+        )
 
         return temp_env_dir
 
@@ -137,10 +254,9 @@ class DockerExecutor(BaseExecutor):
             logger.info(f"Building image from Dockerfile: {dockerfile_path}")
             self.image_name = f"tbench-{self.task_id}-{session_id}".lower().replace("_", "-")
             
-            # Create temporary Dockerfile with proxy if needed
-            build_context_dir = dockerfile_dir
-            if self.env_init:
-                build_context_dir = self._create_temp_dockerfile_with_proxy(dockerfile_dir)
+            # Build from a temporary copy so mirror/proxy injections never
+            # mutate the task's original Dockerfile.
+            build_context_dir = self._create_temp_dockerfile(dockerfile_dir)
 
         try:
             # Setup environment variables for docker-compose
@@ -284,26 +400,21 @@ class DockerExecutor(BaseExecutor):
         wrapped = f"{proxy_exports}; {command}" if proxy_exports else command
 
         try:
-            proc = await asyncio.create_subprocess_exec(
-                "docker", "exec", self.container_id, "sh", "-c", wrapped,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
+            result = await asyncio.to_thread(
+                subprocess.run,
+                ["docker", "exec", self.container_id, "sh", "-c", wrapped],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=exec_timeout,
             )
 
-            stdout, _ = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=exec_timeout
-            )
+            output = result.stdout.decode("utf-8", errors="replace")
+            return output, result.returncode
 
-            output = stdout.decode("utf-8", errors="replace")
-            exit_code = proc.returncode or 0
-
-            return output, exit_code
-
-        except asyncio.TimeoutError:
+        except subprocess.TimeoutExpired:
             return "Command timed out", -1
         except Exception as e:
-            return f"Error executing command: {e}", -1
+            return f"Error executing command ({type(e).__name__}): {e!r}", -1
     
     async def run_tests(self) -> float:
         """Run tests and return reward."""

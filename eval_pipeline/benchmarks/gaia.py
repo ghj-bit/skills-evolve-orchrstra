@@ -8,8 +8,14 @@ Size:    ~165 (validation, test has no labels)
 """
 import re
 import string
+import os
+from pathlib import Path
 from typing import List
 from .base import BaseBenchmark, Task, VerifyResult
+
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_DEFAULT_LOCAL_GAIA_DIR = _REPO_ROOT / "data" / "gaia"
 
 
 def _normalize(s: str) -> str:
@@ -40,6 +46,64 @@ def _extract_answer(text: str) -> str:
     return lines[-1] if lines else text.strip()
 
 
+def _load_local_gaia(split: str):
+    """Load GAIA from a local repository data directory when present.
+
+    Supported layouts:
+    - a Hugging Face dataset saved by ``Dataset.save_to_disk`` or
+      ``DatasetDict.save_to_disk``;
+    - parquet/json/jsonl/csv files under ``GAIA_DATA_DIR`` or ``data/gaia``.
+    """
+    from datasets import DatasetDict, load_dataset, load_from_disk
+
+    candidates = []
+    env_dir = os.environ.get("GAIA_DATA_DIR")
+    if env_dir:
+        candidates.append(Path(env_dir))
+    candidates.extend([
+        _DEFAULT_LOCAL_GAIA_DIR,
+        _REPO_ROOT / "data" / "GAIA",
+        _REPO_ROOT / "data" / "gaia-benchmark" / "GAIA",
+    ])
+
+    seen = set()
+    for base in candidates:
+        base = base.expanduser().resolve()
+        if base in seen or not base.exists():
+            continue
+        seen.add(base)
+
+        try:
+            saved = load_from_disk(str(base))
+            print(f"[GAIA] Loaded local dataset from {base}")
+            if isinstance(saved, DatasetDict):
+                if split in saved:
+                    return saved[split]
+                if "validation" in saved:
+                    return saved["validation"]
+                return next(iter(saved.values()))
+            return saved
+        except Exception:
+            pass
+
+        files = [p for p in base.rglob("*") if p.is_file()]
+        for ext, loader_name in [
+            (".parquet", "parquet"),
+            (".jsonl", "json"),
+            (".json", "json"),
+            (".csv", "csv"),
+        ]:
+            matching = [p for p in files if p.suffix.lower() == ext]
+            if not matching:
+                continue
+            split_matching = [p for p in matching if split.lower() in str(p).lower()]
+            selected = split_matching or matching
+            print(f"[GAIA] Loaded local {loader_name} files from {base}")
+            return load_dataset(loader_name, data_files=[str(p) for p in selected], split="train")
+
+    return None
+
+
 class GAIA(BaseBenchmark):
     """GAIA: General AI Assistants benchmark."""
     scoring_mode = "uno_harness"
@@ -55,8 +119,10 @@ class GAIA(BaseBenchmark):
 
     def load(self, max_tasks=None) -> List[Task]:
         from datasets import load_dataset
-        ds = load_dataset("gaia-benchmark/GAIA", "2023_all",
-                          split=self.split, trust_remote_code=True)
+        ds = _load_local_gaia(self.split)
+        if ds is None:
+            print("[GAIA] Local dataset not found; downloading from Hugging Face")
+            ds = load_dataset("gaia-benchmark/GAIA", "2023_all", split=self.split)
         if max_tasks:
             ds = ds.select(range(min(max_tasks, len(ds))))
 

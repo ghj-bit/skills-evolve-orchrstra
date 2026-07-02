@@ -13,8 +13,58 @@ class PoolConfig(TypedDict):
     policy_models: list[str]
     raw: dict[str, Any]
 
-_POOLS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pools.yaml")
+
+_CONFIG_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROJECT_DIR = os.path.dirname(_CONFIG_DIR)
+
+
+def load_secret_env(path: str | None = None, *, override: bool = False) -> None:
+    """Load local API keys from an env-style file.
+
+    The default file is the repository .env, which is intentionally gitignored.
+    Values already present in the process environment win unless override=True.
+    """
+    env_path = path or os.environ.get(
+        "UNO_ENV_PATH",
+        os.path.join(_PROJECT_DIR, ".env"),
+    )
+    if not os.path.isfile(env_path):
+        return
+    with open(env_path, encoding="utf-8-sig") as file:
+        for raw in file:
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if override:
+                os.environ[key] = value
+            else:
+                os.environ.setdefault(key, value)
+
+
+load_secret_env()
+
+
+_POOLS_PATH = os.environ.get(
+    "UNO_POOLS_PATH",
+    os.path.join(_CONFIG_DIR, "pools.yaml"),
+)
 _CACHE_BY_PATH: dict[str, PoolConfig] = {}
+
+
+def _expand_env_refs(value: Any) -> Any:
+    if isinstance(value, str):
+        match = value.strip()
+        if match.startswith("${") and match.endswith("}") and match.count("${") == 1:
+            return os.environ.get(match[2:-1], "")
+        return os.path.expandvars(value)
+    if isinstance(value, list):
+        return [_expand_env_refs(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _expand_env_refs(item) for key, item in value.items()}
+    return value
 
 def _normalize_skill_ids(raw_skills: list[Any], path: str) -> list[str]:
     skill_ids: list[str] = []
@@ -72,6 +122,7 @@ def load_pools(path: str | None = None) -> PoolConfig:
         cfg = yaml.safe_load(file)
     if not isinstance(cfg, dict):
         raise ValueError(f"{resolved_path}: expected a YAML mapping, got {type(cfg).__name__}")
+    cfg = _expand_env_refs(cfg)
 
     _validate_config(cfg, resolved_path)
     skills = _normalize_skill_ids(cfg.get("skills", []), resolved_path)

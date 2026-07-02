@@ -42,8 +42,8 @@ def build_router(name: str, args) -> BaseRouter:
             planner_api_base=args.local_base,
             router_api_base=args.local_base,
             sub_model_api_base=args.api_base,
-            planner_api_key="EMPTY",
-            router_api_key="EMPTY",
+            planner_api_key=args.api_key,
+            router_api_key=args.api_key,
             sub_model_api_key=args.api_key,
         )
     if name == "local":
@@ -313,27 +313,35 @@ def _run_interactive(router, bench, tasks, need_verify,
     def _run_one_task(task):
         """Run up to pass_k attempts for a single task."""
         rewards = []
+        attempt_entries = []
         for attempt in range(pass_k):
             attempt_logs = os.path.join(logs_dir, f"attempt_{attempt}") if pass_k > 1 else logs_dir
             vr = bench.interactive_verify(task, router, attempt_logs)
             rewards.append(vr.reward)
+            attempt_entries.append(
+                _read_interactive_attempt_entry(
+                    task=task,
+                    attempt_index=attempt,
+                    attempt_logs=attempt_logs,
+                    reward=vr.reward,
+                    error=vr.error,
+                )
+            )
             if vr.reward > 0:
                 break  # early stop on first success
         best_reward = max(rewards)
-        return task, best_reward, rewards, vr
+        return task, best_reward, rewards, vr, attempt_entries
 
     lock = threading.Lock()
     with open(verify_file, "a") as vout, open(pred_file, "a") as pout:
         with ThreadPoolExecutor(max_workers=args.verify_workers) as ex:
             futs = {ex.submit(_run_one_task, t): t for t in to_run}
             for fut in tqdm(as_completed(futs), total=len(to_run), desc="Interactive"):
-                task, best_reward, rewards, last_vr = fut.result()
+                task, best_reward, rewards, last_vr, attempt_entries = fut.result()
                 d = {"task_id": task.task_id, "reward": best_reward,
                      "pass_at_k": rewards,
                      "error": last_vr.error, "log": last_vr.log[:500]}
-                pred_entry = {"task_id": task.task_id, "answer": "(interactive)",
-                              "route_count": 0, "routed_models": [], "cost": 0,
-                              "tokens": 0, "prompt_tokens": 0, "completion_tokens": 0}
+                pred_entry = _merge_interactive_attempt_entries(task.task_id, attempt_entries)
                 with lock:
                     verification[task.task_id] = d
                     vout.write(json.dumps(d) + "\n")
@@ -342,9 +350,76 @@ def _run_interactive(router, bench, tasks, need_verify,
                         predictions[task.task_id] = pred_entry
                         pout.write(json.dumps(pred_entry) + "\n")
                         pout.flush()
-                status = "PASS" if vr.reward > 0 else "FAIL"
-                err = f" ({vr.error})" if vr.error else ""
-                tqdm.write(f"  {vr.task_id}: {status}{err}")
+                status = "PASS" if last_vr.reward > 0 else "FAIL"
+                err = f" ({last_vr.error})" if last_vr.error else ""
+                tqdm.write(f"  {last_vr.task_id}: {status}{err}")
+
+
+def _read_interactive_attempt_entry(task, attempt_index: int, attempt_logs: str,
+                                    reward: float, error: str | None) -> dict:
+    """Read Terminal-Bench trajectory usage for one pass@k attempt."""
+    trajectory_path = Path(attempt_logs) / task.task_id / "trajectory.json"
+    entry = {
+        "attempt": attempt_index,
+        "attempt_dir": f"attempt_{attempt_index}",
+        "answer": "(interactive)",
+        "reward": reward,
+        "error": error,
+        "trajectory_path": str(trajectory_path),
+        "route_count": 0,
+        "routed_models": [],
+        "routed_skills": [],
+        "routed_backends": [],
+        "cost": 0.0,
+        "tokens": 0,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+    }
+    if not trajectory_path.exists():
+        entry["stats_error"] = "trajectory.json not found"
+        return entry
+    try:
+        with trajectory_path.open(encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as exc:
+        entry["stats_error"] = f"failed to read trajectory.json: {exc}"
+        return entry
+
+    entry.update({
+        "route_count": int(data.get("route_count", 0) or 0),
+        "routed_models": data.get("routed_models", []) or [],
+        "routed_skills": data.get("routed_skills", []) or [],
+        "routed_backends": data.get("routed_backends", []) or [],
+        "cost": float(data.get("cost", 0) or 0),
+        "tokens": int(data.get("tokens", 0) or 0),
+        "prompt_tokens": int(data.get("prompt_tokens", 0) or 0),
+        "completion_tokens": int(data.get("completion_tokens", 0) or 0),
+        "planner_usage": data.get("planner_usage", {}),
+        "subagent_usage": data.get("subagent_usage", {}),
+    })
+    return entry
+
+
+def _merge_interactive_attempt_entries(task_id: str, attempts: list[dict]) -> dict:
+    def _chain(key):
+        out = []
+        for attempt in attempts:
+            out.extend(attempt.get(key, []) or [])
+        return out
+
+    return {
+        "task_id": task_id,
+        "answer": "(interactive)",
+        "attempts": attempts,
+        "route_count": sum(int(a.get("route_count", 0) or 0) for a in attempts),
+        "routed_models": _chain("routed_models"),
+        "routed_skills": _chain("routed_skills"),
+        "routed_backends": _chain("routed_backends"),
+        "cost": sum(float(a.get("cost", 0) or 0) for a in attempts),
+        "tokens": sum(int(a.get("tokens", 0) or 0) for a in attempts),
+        "prompt_tokens": sum(int(a.get("prompt_tokens", 0) or 0) for a in attempts),
+        "completion_tokens": sum(int(a.get("completion_tokens", 0) or 0) for a in attempts),
+    }
 
 
 def _run_pipeline_eval(bench, tasks, need_verify,
@@ -415,7 +490,7 @@ def _run_sequential(router, bench, tasks, need_gen, need_verify,
         lock = threading.Lock()
         with open(pred_file, "a") as fout:
             with ThreadPoolExecutor(max_workers=args.gen_workers) as ex:
-                futs = {ex.submit(_gen_one, router, bench, t): t for t in need_gen}
+                futs = {ex.submit(_gen_one, router, bench, t, logs_dir): t for t in need_gen}
                 for fut in tqdm(as_completed(futs), total=len(need_gen), desc="Generating"):
                     entry = fut.result()
                     with lock:
@@ -531,10 +606,52 @@ def _run_pipelined(router, bench, tasks, need_gen, need_verify,
     pbar.close()
 
 
-def _gen_one(router, bench, task):
+def _gen_one(router, bench, task, logs_dir=None):
     """Generate one prediction."""
-    res = router.route(task.question, task.context)
-    answer = bench.extract_answer(res.answer, task)
+    executor = None
+    swe_registered = False
+    if (
+        getattr(bench, "name", "") == "SWE-bench_Verified"
+        and os.environ.get("UNO_SWEBENCH_BACKEND", "0") == "1"
+    ):
+        from .executors.swebench_data_loader import SWEBenchInstance
+        from .executors.swebench_executor import SWEBenchExecutor
+        from uno_orchestor.routing.uno.backends import (
+            register_swebench_executor,
+            unregister_swebench_executor,
+        )
+
+        task_logs = Path(logs_dir or "/tmp") / task.task_id.replace("/", "_") / "route_backend"
+        instance = SWEBenchInstance.from_dict(task.raw)
+        executor = SWEBenchExecutor(
+            instance=instance,
+            logs_dir=task_logs,
+            timeout=getattr(bench, "docker_timeout", 1800),
+        )
+        _run_awaitable(executor.start_container())
+        register_swebench_executor(task.question, executor)
+        swe_registered = True
+
+    try:
+        res = router.route(task.question, task.context)
+        answer = bench.extract_answer(res.answer, task)
+        if executor is not None:
+            diff, exit_code = _run_awaitable(
+                executor.execute_command(
+                    "cd /testbed && git diff --src-prefix=a/ --dst-prefix=b/",
+                    timeout=60,
+                    workdir="/testbed",
+                )
+            )
+            if exit_code == 0 and diff.strip():
+                answer = diff.strip()
+                res.full_trace += f"\n[SWE-BENCH DOCKER DIFF]\n{answer}\n[/SWE-BENCH DOCKER DIFF]\n"
+    finally:
+        if swe_registered:
+            unregister_swebench_executor(task.question)
+        if executor is not None:
+            _run_awaitable(executor.cleanup())
+
     return {
         "task_id": task.task_id, "answer": answer,
         "full_trace": res.full_trace, "route_count": res.route_count,
@@ -544,6 +661,16 @@ def _gen_one(router, bench, task):
         "prompt_tokens": res.prompt_tokens,
         "completion_tokens": res.completion_tokens,
     }
+
+
+def _run_awaitable(awaitable):
+    import asyncio
+
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(awaitable)
+    finally:
+        loop.close()
 
 def main():
     parser = argparse.ArgumentParser(description="Eval pipeline: router → sub-agent → benchmark")

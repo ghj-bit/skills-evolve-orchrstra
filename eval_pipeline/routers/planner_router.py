@@ -1,4 +1,4 @@
-"""Paper-style Uno evaluation router entrypoint.
+﻿"""Paper-style Uno evaluation router entrypoint.
 
 The Uno architecture uses a unified policy that emits decomposition and routing
 decisions in one assistant stream, so this class reuses the same schema/harness
@@ -34,12 +34,17 @@ class PlannerRouter(UnoSFT):
     ):
         model_name = router_model or planner_model
         local_base = router_api_base or planner_api_base
+        worker_api_base = sub_model_api_base or api_base or DEFAULT_API_BASE
+        worker_api_key = sub_model_api_key or api_key or "EMPTY"
         super().__init__(
             local_base=local_base,
-            api_base=sub_model_api_base or api_base or DEFAULT_API_BASE,
-            api_key=sub_model_api_key or api_key or "EMPTY",
+            api_base=worker_api_base,
+            api_key=worker_api_key,
             model_name=model_name,
+            local_api_key=router_api_key,
         )
+        self.sub_model_api_base = worker_api_base
+        self.sub_model_api_key = worker_api_key
         self.planner_model = planner_model
         self.router_model = model_name
         self.planner_temperature = planner_temperature
@@ -79,3 +84,4 @@ class PlannerRouter(UnoSFT):
             "prompt_tokens": getattr(r.usage, "prompt_tokens", 0) or 0,
             "model": self.planner_model,
         }
+
