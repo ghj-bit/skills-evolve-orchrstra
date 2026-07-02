@@ -5,6 +5,7 @@
 !.gitignore
 !README.md
 !.env.example
+!environment.yml
 !CITATION.cff
 !LICENSE
 !Notice.txt
