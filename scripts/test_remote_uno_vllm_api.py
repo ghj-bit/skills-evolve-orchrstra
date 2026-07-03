@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
+
+PROJECT_DIR = Path(__file__).resolve().parents[1]
+if str(PROJECT_DIR) not in sys.path:
+    sys.path.insert(0, str(PROJECT_DIR))
 
 from openai import OpenAI
 
@@ -12,9 +17,13 @@ from configs import load_secret_env
 
 load_secret_env()
 
-BASE_URL = os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-MODEL_ID = os.environ.get("OPENROUTER_MODEL", "openai/gpt-oss-120b:free")
-API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+BASE_URL = os.environ.get("OPENROUTER_BASE_URL", "https://api.siliconflow.cn/v1")
+MODEL_ID = os.environ.get("OPENROUTER_MODEL", "Qwen/Qwen3-8B")
+API_KEY = (
+    os.environ.get("QWEN_API_KEY")
+    or os.environ.get("SILICONFLOW_API_KEY")
+    or ""
+)
 
 
 def clear_invalid_cert_env() -> None:
@@ -29,7 +38,9 @@ def clear_invalid_cert_env() -> None:
 def main() -> None:
     clear_invalid_cert_env()
     if not API_KEY:
-        raise SystemExit("OPENROUTER_API_KEY is not set. Set it before running this script.")
+        raise SystemExit(
+            "OPENROUTER_API_KEY, QWEN_API_KEY, or SILICONFLOW_API_KEY must be set."
+        )
 
     client = OpenAI(base_url=BASE_URL, api_key=API_KEY)
 
