@@ -1,0 +1,450 @@
+[
+  {
+    "criterion_id": "A01",
+    "title": "正确编码所有确定性游戏约束",
+    "criterion_intent": "DP 递推、状态空间与动作空间必须忠实嵌入每条强制规则，包括购买时的资金非负约束。遗漏或误用约束会使 DP 模型失效。",
+    "why_this_is_branch_general": "任何基于 DP 的解必须尊重游戏的不变规则；所有后续结果的正确性依赖于它。",
+    "full_score": 2.0,
+    "evaluation_method": [
+      "检查 DP 公式是否显式追踪资金状态，或提供资金非负自动满足的证明。",
+      "验证购买动作仅在当前现金 ≥ 成本时允许。",
+      "检查其他约束（矿山、沙暴、负载等）的编码。"
+    ],
+    "key_checks": [
+      "显式资金状态或自动非负性证明。",
+      "起点采购仅在第0天。",
+      "矿山动作仅在已在矿山且非当日抵达时可用。",
+      "沙暴日禁止移动。",
+      "每一步后强制负载限制。",
+      "终点到达立即结束并退款。"
+    ],
+    "failure_tests": [
+      "允许现金为负的购买。",
+      "在抵达日挖矿。",
+      "沙暴日移动。",
+      "未检查负载限制。",
+      "无终点退款逻辑。"
+    ],
+    "confidence_scope": "若资金约束被正确实施，则 DP 最优路径保证可行。",
+    "scoring_guidance": "缺少或不完整的资金约束扣0.5分；若无资金追踪且无证明扣1.0分；若多个关键约束遗漏扣满2.0分。"
+  },
+  {
+    "criterion_id": "A02",
+    "title": "多玩家惩罚规则正确性",
+    "criterion_intent": "确保在多玩家关卡中，行走、挖矿、村庄购买的多人惩罚公式被正确实现，特别是行走倍数(2k)、收入分割(/k)以及村庄价格(4倍)，并且惩罚判定基于具体有向边或具体矿山。",
+    "why_this_is_branch_general": "多玩家惩罚是本题的核心新增规则，不同分支路线可能采用集中规划或博弈推理，但底层惩罚计算必须一致；错误将导致完全不可行的结论。",
+    "full_score": 10,
+    "evaluation_method": [
+      "检查报告中对多人惩罚公式的描述与题目原文是否一致。",
+      "若提供测试案例，验证其手工计算与仿真器输出是否匹配。",
+      "检查路径重叠判定：是基于有向边（起点‑终点对）还是基于无向边，前者更严格且正确。",
+      "检查k=1时是否错误地应用了惩罚。"
+    ],
+    "key_checks": [
+      "行走惩罚：k人走同一条有向边，每人消耗倍率 = 2 * k（k≥2）。",
+      "挖矿惩罚：k人同天在同一矿山挖矿，每人收益 = 基础收益 / k，消耗仍为 3 倍基础。",
+      "村庄购买惩罚：k人同天在同一村庄购买，价格倍率 = 4（k≥2）。",
+      "惩罚触发条件严格：仅当多人完全使用同一有向边或同一矿山时才算重叠。"
+    ],
+    "failure_tests": [
+      "将行走惩罚实现为 2 + k 或 2 + (k-1)*2 等错误公式。",
+      "矿收益减半时未对整数取整或丢失精度导致小额误差。",
+      "村庄价格在单人时误用 4 倍。",
+      "重叠判定使用无向边导致扩大惩罚范围。"
+    ],
+    "confidence_scope": "适用于第五、六关，是判断多玩家解正误的核心门槛。",
+    "scoring_guidance": "若全部惩罚公式正确且测试通过，得满分；若存在公式错误但影响较小（如仅边缘条件有误）扣3-5分；若核心公式错误（如行走倍率）导致多数解不可行，扣8-10分。"
+  },
+  {
+    "criterion_id": "A03",
+    "title": "资源计划与约束可行性",
+    "criterion_intent": "对于每一位玩家，在其所报告的路径和购买策略下，必须满足所有硬约束：每日负重 ≤1200 kg，每日水与食物均 ≥0 箱，且在截止日期前到达终点。多人惩罚必须已正确计入。",
+    "why_this_is_branch_general": "违背硬约束的解即使数值上看起来很好也是无效的；该准则直接评判解是否可执行，与算法选择无关。",
+    "full_score": 20,
+    "evaluation_method": [
+      "对确定性关卡，逐日模拟资源变化，检查约束。",
+      "对随机关卡，最少针对一条高成功率序列进行完整逐日考核；同时汇报最差情况下的满足率。",
+      "检查初始购买后立即满足负重约束，不允许依赖后续消耗来缓解初始超限。",
+      "多人惩罚的额外消耗应在每日计算中得到体现。"
+    ],
+    "key_checks": [
+      "每日 3×水 + 2×食 ≤ 1200 kg。",
+      "每日末水 ≥ 0，食物 ≥ 0。",
+      "在第0天购买后立即检验负重上限。",
+      "在截止日当天或之前到达终点。",
+      "多人路径重叠时的额外消耗已加总，且未导致死亡。"
+    ],
+    "failure_tests": [
+      "某天终态水或食物为负（即使极少）。",
+      "初始负重超过1200 kg。",
+      "遗漏多人惩罚导致实际消耗被低估。",
+      "截止期后仍未到达终点。"
+    ],
+    "confidence_scope": "适用于所有关卡，是解成立与否的绝对门槛。",
+    "scoring_guidance": "每一关卡出现任何硬约束违反，该关卡计为不可行，每次扣10分，上限20分（即两关以上不可行直接0分）。若仅边缘条件存在问题但通过调整可修复，扣5分。"
+  },
+  {
+    "criterion_id": "A04",
+    "title": "数值自洽与独立可验性",
+    "criterion_intent": "报告的最终资金值能够由公开的动作序列、购买记录与天气数据经独立手工核算得出，且至少对一个关卡提供完整核算过程。多玩家总额可拆解至个体。",
+    "why_this_is_branch_general": "仿真优化容易引入累加误差或隐藏Bug；独立手工核算是最强有力的交叉验证手段，适用于任何使用仿真的场景。",
+    "full_score": 15,
+    "evaluation_method": [
+      "从报告中提取至少一个关卡的完整动作序列，用人工或简单脚本复算每日资源变化。",
+      "比较手工结果与报告目标值，要求箱数完全一致，资金误差允许在0.5元以内。",
+      "验证多玩家解中各玩家资金之和是否与声称的总计一致。"
+    ],
+    "key_checks": [
+      "至少有一个确定性关卡有逐步的手工验算记录，且与仿真输出严格匹配。",
+      "手工核算包含所有消耗、购买、收入、退还步骤。",
+      "退还计算使用正确顺序（消耗后，购买后，再结余）。",
+      "多玩家总资金等于各玩家资金之和。"
+    ],
+    "failure_tests": [
+      "手工核算与报告结果不符。",
+      "手工核算遗漏了某些消耗日。",
+      "多玩家总和与个体明细不一致。",
+      "仅提供代码输出而未给出可手工核算的步骤说明。"
+    ],
+    "confidence_scope": "适用于所有关卡；对随机关卡，要求对一条典型的成功序列（如中位数序列）提供手工核算。",
+    "scoring_guidance": "若至少对一个关卡提供了完整且正确的手工核算，其余关卡无矛盾，得满分。完全无手工核算扣10分；手工核算有具体错误扣8分；多玩家一致性缺失扣5分。"
+  },
+  {
+    "criterion_id": "A05",
+    "title": "从DP分析推导一般性最优策略",
+    "criterion_intent": "问题1明确要求‘一般情况下玩家的最优策略’。解必须提炼出可应用于新地图和天气系列的决策规则，规则应基于DP最优性条件并用参数表达。",
+    "why_this_is_branch_general": "这是问题强制输出，而非装饰性补充。",
+    "full_score": 1.5,
+    "evaluation_method": [
+      "寻找从DP结果蒸馏出的可行动规则，涵盖初始购买、矿山利用、村庄补给、终点时机、沙暴处理。",
+      "检查规则是否可从DP结构逻辑推导。",
+      "验证规则是否参数化而非仅重述某关路径。"
+    ],
+    "key_checks": [
+      "策略用地图拓扑、天气序列、截止日期和资源参数表达。",
+      "规则覆盖起点采购、矿山/停留决策、村庄补给、终点时机。",
+      "推理将策略与DP值函数联系（如水的边际价值）。",
+      "无与数值结果矛盾：将通用策略应用到特定关卡应产生与计算一致的轨迹。"
+    ],
+    "failure_tests": [
+      "只重述DP算法而无人工可用的规则。",
+      "规则过于模糊，无法用于新地图决策。",
+      "策略忽略关键约束如到达日不挖矿。"
+    ],
+    "confidence_scope": "良好阐述的一般策略增强对DP建模掌握问题结构的信心。其缺失不证伪DP结果，但未满足问题要求。",
+    "scoring_guidance": "给出清晰、参数化的规则集并覆盖所有关键决策且由DP性质论证得满分。遗漏某些决策类型或规则仅是定性而无定量条件扣0.5分。仅描述算法或规则仅定性且未联系最优性结构得0分。"
+  },
+  {
+    "criterion_id": "A06",
+    "title": "多玩家目标设定与协作推理",
+    "criterion_intent": "明确声明多玩家优化目标（如总和最大化），并基于该目标分析路径如何避免/利用惩罚，讨论在合作或非合作情形下的解性质，以及信息结构对决策的影响。",
+    "why_this_is_branch_general": "多玩家场景下，简单的独立求解无法体现互动惩罚的权衡；必须展示对题目设定的领会和针对性设计。",
+    "full_score": 5,
+    "evaluation_method": [
+      "确认是否早期就明确了优化目标（合作总和或各自最大化）。",
+      "评估路径设计是否主动降低了共享有向边/矿山的概率。",
+      "对于第六关（动态信息共享），是否讨论了策略是否需要调整或为何静态策略足够。"
+    ],
+    "key_checks": [
+      "优化目标表述清晰且与求解过程一致。",
+      "路径计划明显考虑了协作：尽量减少共享边，或在共享不可避免时有对应解释。",
+      "对第六关，至少提及每日信息共享如何被利用或为何不影响当前设计。"
+    ],
+    "failure_tests": [
+      "未声明多玩家目标，默默使用总和最大化。",
+      "各玩家路径严重重叠且未作任何分析或避免尝试。",
+      "将多玩家问题简单视为互不相关的独立个体问题。"
+    ],
+    "confidence_scope": "适用于第五、六关。",
+    "scoring_guidance": "目标声明明确、路径协作明显、有一定互动讨论得满分。缺少目标声明扣2分；重叠严重且无解释扣4分。"
+  },
+  {
+    "criterion_id": "A07",
+    "title": "双轨分析完整性",
+    "criterion_intent": "Verify that the solution presents both a cooperative (joint total money maximization) and a non‑cooperative (Nash equilibrium, each player maximizing own money) analysis for at least one concrete multi‑player instance.",
+    "why_this_is_branch_general": "The branch family requires contrasting cooperative efficiency with non‑cooperative self‑interest. Any valid solution in this family must address both perspectives for a meaningful game‑theoretic analysis.",
+    "full_score": 5,
+    "evaluation_method": [
+      "Confirm that two distinct tracks are presented, with clearly separated reasoning and results.",
+      "Check that for the chosen instance a cooperative solution (joint maximization) is identified with a concrete total money value.",
+      "Check that at least one Nash equilibrium (possibly approximate) is identified, with per‑player final money values.",
+      "Verify that the two tracks are not conflated (e.g., the cooperative solution is not mistaken for an equilibrium without deviation checks)."
+    ],
+    "key_checks": [
+      "Cooperative solution: total money maximized over all players jointly, constraints correctly applied.",
+      "Non‑cooperative solution: each player's payoff computed given others' fixed strategies; deviation condition checked."
+    ],
+    "failure_tests": [
+      "Only one track is analyzed (e.g., only cooperative).",
+      "The report claims to present both tracks but the non‑cooperative analysis lacks any deviation check or merely reuses the cooperative solution without justification."
+    ],
+    "confidence_scope": "Applies to any multi‑player instance under analysis.",
+    "scoring_guidance": "Full 5 points if both tracks are present and clearly delineated. Deduct 2 points if one track is missing or indistinguishable. Deduct 1 point if one track is only superficially mentioned without concrete numbers."
+  },
+  {
+    "criterion_id": "A08",
+    "title": "纳什均衡偏离验证",
+    "criterion_intent": "Verify that every reported Nash equilibrium (NE) truly satisfies the unilateral deviation condition: for each player, no alternative strategy (within the considered strategy set) yields a strictly higher payoff, given the other players’ strategies.",
+    "why_this_is_branch_general": "The concept of Nash equilibrium hinges on checking deviations. Any claim of a Nash equilibrium must be supported by evidence that no profitable unilateral deviation exists, otherwise the analysis is unreliable.",
+    "full_score": 4,
+    "evaluation_method": [
+      "Select at least one NE strategy profile reported.",
+      "Check that the report provides, at minimum, a few top alternative strategies for one player and shows their payoffs under the same opponent strategy.",
+      "Confirm that all shown alternatives give ≤ payoff than the equilibrium payoff.",
+      "If the solution only states “verified by code”, demand at least one concrete example in the report."
+    ],
+    "key_checks": [
+      "For a given NE, for player i, scan a meaningful subset of alternative strategies and confirm no higher payoff.",
+      "The payoffs are computed with the same penalty‑aware rules as in the cooperative case.",
+      "If the NE is approximate (ε‑equilibrium), the solution states the ε bound and verifies that no deviation improvement exceeds ε."
+    ],
+    "failure_tests": [
+      "The report claims an NE but shows no deviation data at all.",
+      "The solution lists a strategy profile and asserts it is an NE without showing how it was checked.",
+      "Manual recomputation of a simple alternative shows a higher payoff, contradicting the claimed equilibrium."
+    ],
+    "confidence_scope": "Applies to each claimed Nash equilibrium, for any instance.",
+    "scoring_guidance": "Full 4 points if at least one NE is verified with concrete deviation evidence (e.g., a table of alternative payoffs). Deduct 2 points if no deviation evidence is presented. Deduct 2 additional points if a manual check reveals a profitable deviation not accounted for."
+  },
+  {
+    "criterion_id": "A09",
+    "title": "效率指标 PoA / PoS 的计算与解释",
+    "criterion_intent": "Check that Price of Anarchy / Price of Stability are calculated correctly using consistent definitions (total final money), and that the solution provides a meaningful interpretation linking the computed value to the game structure.",
+    "why_this_is_branch_general": "Quantifying the inefficiency of non‑cooperative behavior is a central goal of game‑theoretic analysis. Any solution in this branch should offer a well‑defined efficiency measure and explain what it reveals about multi‑player coordination.",
+    "full_score": 3,
+    "evaluation_method": [
+      "Identify the reported PoA/PoS values.",
+      "Recalculate PoA from the reported cooperative total and (best/worst) NE total, checking that the same definition (e.g., cooperative total divided by NE total) is used.",
+      "Evaluate the interpretation: does it connect the PoA value to specifics of the problem (disjoint paths, penalty avoidance)?",
+      "Check whether the solution discusses the sensitivity of PoA to assumptions (e.g., weather sampling or strategy set completeness)."
+    ],
+    "key_checks": [
+      "PoA = (cooperative total money) / (worst‑case NE total money), PoS = (cooperative total) / (best NE total).",
+      "Both totals must be computed under the same rules, including penalty effects.",
+      "The interpretation should not just restate the ratio but explain why it is high or low."
+    ],
+    "failure_tests": [
+      "PoA computed using wrong definitions (e.g., per‑player averages instead of totals).",
+      "PoA = 1.0 is reported but the underlying cooperative and NE totals are actually different (arithmetic error).",
+      "No interpretation beyond stating the number.",
+      "PoA is given for an instance with uncertain weather but based on a single weather sample with no discussion of variance."
+    ],
+    "confidence_scope": "Expected for every instance where both cooperative and NE totals are available.",
+    "scoring_guidance": "Full 3 points if PoA is correctly calculated and interpreted with insight. Deduct 1 point if interpretation is shallow. Deduct 2 points if PoA is defined incorrectly or computed from inconsistent numbers."
+  },
+  {
+    "criterion_id": "A10",
+    "title": "问题2的非预期随机建模",
+    "criterion_intent": "天气不确定时，决策规则必须仅为当时可用信息的函数，不能看见未来。模型必须正确评估符合该规则的期望性能，而非计算完美预见下最优解的均值。违反非预期性导致不可实现的乐观解。",
+    "why_this_is_branch_general": "这是随机DP/MDP的定义性特征；任何在完整天气样本上求解确定性DP并平均的方法都不尊重非预期性，视为无效。",
+    "full_score": 2.0,
+    "evaluation_method": [
+      "检查是否定义了将（当前状态，当日天气）映射到动作的策略，或求解含有对次日天气期望的贝尔曼方程。",
+      "验证报告的期望值是在该非预期策略下计算的（例如通过值迭代或策略评估蒙特卡洛），而非平均确定性最优值。"
+    ],
+    "key_checks": [
+      "策略或最优值函数仅依赖于当前状态和天数（可能包含当日天气），绝不依赖未来天气。",
+      "递推或模拟中，下一状态的价值按天气转移模型对可能天气取平均，而非从已知序列选确定最优。",
+      "若用蒙特卡洛，则同一策略应用于每条采样序列，然后平均奖励。"
+    ],
+    "failure_tests": [
+      "对每条完整天气序列求解确定性DP并平均终端财富（先知期望）。",
+      "假设已知未来天气进行决策。",
+      "使用按序列特化的确定性DP值表索引的策略。",
+      "未提及非预期性或未区分最优随机策略与先知最优。"
+    ],
+    "confidence_scope": "正确的非预期建模是任何随机分析有效性的必要条件。若不满足，报告的期望值作为可实现的性能无意义。",
+    "scoring_guidance": "正确定义非预期策略并计算其期望表现得满分。尝试随机建模但使用先知方法扣1.0分。提到非预期性但实现不一致扣0.5分。忽略随机问题或作为确定性处理得0分。"
+  },
+  {
+    "criterion_id": "A11",
+    "title": "Uncertainty set definition and justification",
+    "criterion_intent": "Assess whether the solution correctly formalizes the qualitative weather constraints into a well-defined uncertainty set, with a reasoned quantification of vague terms like 'few sandstorms' that is tied to problem data (e.g., baseline frequency) and a sensitivity analysis over plausible parameter ranges.",
+    "why_this_is_branch_general": "Every robust optimization solution must define the set of possible realizations against which robustness is sought; for this problem, the only uncertainty is the weather sequence, and the problem provides qualitative constraints that need operationalization.",
+    "full_score": 10,
+    "evaluation_method": [
+      "Check if the uncertainty set for Level 3 enforces exactly 0 sandstorms, consistent with the given 'no sandstorms in 10 days'.",
+      "Check if the Level 4 (and Level 6) set allows any sequence of sunny/hot/sandstorm days but restricts total sandstorm days by an upper bound K.",
+      "Verify that the choice of K for 'few sandstorms' is argued with reference to baseline frequencies (e.g., 6/30 from Level 1/2) and that the argument attempts to show K is meaningfully lower, not just one day less.",
+      "Confirm that a sensitivity analysis over a range of K values is conducted and discussed (e.g., varying K by at least three distinct values including the nominal choice).",
+      "Ensure the definition does not inadvertently exclude obviously possible sequences (e.g., all sunny/hot with 0 sandstorms) that satisfy the qualitative constraint."
+    ],
+    "key_checks": [
+      "Definition of U3: must allow only sequences with 0 sandstorms; any sequence must be valid.",
+      "Definition of U4/U6: must be of the form {ω: Σ 1_{ω_d = sand} ≤ K} where K is a chosen integer.",
+      "Explicit justification for K, e.g., linking to observed frequency in other levels or reasoning about 'few', demonstrating a clear reduction from the baseline.",
+      "Sensitivity analysis: results reported for at least 3 different K values, and consequences discussed."
+    ],
+    "failure_tests": [
+      "K chosen without any reasoning, e.g., 'we set K=3' with no link to problem statement.",
+      "Choice of K that is nearly identical to the baseline frequency without justification of why it counts as 'few'.",
+      "No sensitivity analysis despite the vagueness of 'few'.",
+      "Uncertainty set that allows sandstorms in Level 3.",
+      "Definition that is not mathematically explicit, e.g., 'various possible weather patterns'."
+    ],
+    "confidence_scope": "This criterion only judges the correctness of the uncertainty set definition and the logic of the justification; it does not require a particular value of K.",
+    "scoring_guidance": "Award 10 if all checks pass. Deduct 2-3 if justification is weak or not tied to problem data (e.g., K chosen without showing it is meaningfully lower than baseline). Deduct 4-5 if sensitivity analysis is missing. Deduct 7-8 if uncertainty set is incorrectly defined (e.g., allowing sandstorms in L3)."
+  },
+  {
+    "criterion_id": "A12",
+    "title": "Adaptive robust strategy design with explicit timing constraints",
+    "criterion_intent": "Evaluate whether the proposed strategy correctly respects the online information constraint (only today's weather known) and is truly adaptive, not assuming future weather. Additionally, ensure the strategy explicitly handles the 'no mining on arrival day' rule and respects all day-of-operations constraints.",
+    "why_this_is_branch_general": "A core requirement of the problem family is that players only know the current day's weather; any solution that ignores this constraint fails the problem statement. Moreover, the game rules include specific timing constraints (e.g., arrival day no mining) that must be logically enforced in the decision logic, independent of optimization method.",
+    "full_score": 10,
+    "evaluation_method": [
+      "Check if the decision rule explicitly conditions only on past and current observations, not on future weather.",
+      "Verify that the strategy allows different actions depending on the realized weather, i.e., it is not a fixed path.",
+      "Confirm that the decision rule contains a clear condition to prevent mining on the same day as arriving at a mine (e.g., tracking 'arrived_today' flag).",
+      "Assess whether the safety check is based on recomputing required resources using remaining days and sandstorm allowance.",
+      "Verify that the rule distinguishes between weather types for mining profitability and respects the 'sandstorm day can mine only if already at mine' rule."
+    ],
+    "key_checks": [
+      "Decision rule takes as input at least (day, current node, resources, today's weather) and outputs an action; no dependence on future weather.",
+      "Explicit prohibition of mining on the day of arrival at a mine: the rule must include a condition like 'if node is mine and not arrived_today then ... else cannot mine'.",
+      "Safety check uses worst-case resource requirement from current state to end, recalculated using remaining walk distance and sandstorm quota.",
+      "Correct handling of sandstorm mining: only allowed if player was already at mine before sandstorm day, not if they arrived on a sandstorm day (since movement is impossible)."
+    ],
+    "failure_tests": [
+      "Strategy that pre-computes a fixed path with predetermined mining days and does not adapt to weather.",
+      "Decision rule that uses future weather information.",
+      "Decision rule that allows mining on the same day as arriving at the mine.",
+      "Lack of any safety check; mining even when it would lead to resource exhaustion before reaching the end."
+    ],
+    "confidence_scope": "This criterion ensures the solution satisfies the online decision and timing constraints; it does not evaluate optimality unless the strategy is proven infeasible or absurd.",
+    "scoring_guidance": "Award 10 if the strategy is clearly adaptive, respects information constraints, explicitly prevents mining on arrival day, and includes a sensible safety logic. Deduct 3-5 if the arrival-day prohibition is missing from the decision rule description, even if implicitly assumed. Deduct 7-8 if the strategy assumes knowledge of future weather or lacks adaptivity."
+  },
+  {
+    "criterion_id": "A13",
+    "title": "Worst-case performance quantification and transparent clairvoyant upper-bound comparison",
+    "criterion_intent": "Assess whether the solution explicitly computes and reports the worst-case remaining money under its strategy, and compares it with an idealized upper bound (perfect weather foresight) derived through a transparent, verifiable calculation. The clairvoyant bound must be computed for the same uncertainty set, and the derivation steps must be shown (e.g., enumeration of mining days, resource allocation), not just final numbers.",
+    "why_this_is_branch_general": "A robust optimization solution must demonstrate the guaranteed performance of its strategy and situate it relative to the best possible outcome under perfect information. A superficial comparison without visible computation undermines the credibility of the analysis.",
+    "full_score": 10,
+    "evaluation_method": [
+      "Check if the report clearly states the worst-case remaining money for Level 3 and Level 4 under the robust strategy.",
+      "Verify that the worst-case scenario is consistent with the uncertainty set and the solution's own definition (e.g., maximum sandstorm days, worst weather in remaining days).",
+      "Confirm that an upper bound is computed by solving a deterministic optimization assuming the actual weather sequence is known in advance (clairvoyant), and that the calculation is shown step by step (e.g., list of all feasible mining-day combinations with resource requirements and final money, or an optimization description that allows reproduction).",
+      "Check that the comparison discusses the difference (the 'price of robustness') and explains what causes the gap (e.g., extra resource padding, forgone mining days)."
+    ],
+    "key_checks": [
+      "Explicit worst-case money values for L3 and L4.",
+      "The worst-case scenario described (e.g., 'all non-sandstorm days are hot, sandstorms at worst positions') and shown to be feasible within the uncertainty set.",
+      "Clairvoyant upper bound derived by enumerating possible mining day counts under the given worst-case weather sequence, showing resource feasibility and final money for each, and selecting the maximum.",
+      "The derivation shows the number of mining days possible for the clairvoyant, the corresponding initial resource purchase, consumption, and final money, with all arithmetic visible.",
+      "Price of robustness quantified and attributed to specific factors (e.g., extra safety margin vs. reduced mining opportunity)."
+    ],
+    "failure_tests": [
+      "No explicit worst-case value given; only average-case or simulation results.",
+      "Worst-case scenario that violates the uncertainty set (e.g., more sandstorms than K).",
+      "Clairvoyant upper bound stated without any derivation; numbers are not reproducible from the information given.",
+      "Clairvoyant bound computed incorrectly (e.g., ignoring the information advantage, using wrong consumption values).",
+      "Comparison missing or purely qualitative without numbers."
+    ],
+    "confidence_scope": "This criterion evaluates whether the robust analysis is complete and the clairvoyant comparison is trustworthy; it does not require that the robust strategy is optimal, only that its guaranteed performance is correctly assessed and the upper bound is properly justified.",
+    "scoring_guidance": "Award 10 if worst-case money is correctly reported, clairvoyant bound is derived transparently with visible calculations, and the comparison is meaningful. Deduct 2-4 if the clairvoyant derivation is sketchy (e.g., numbers given but no enumeration details). Deduct 5-7 if no clairvoyant comparison or only a qualitative mention. Deduct 8-10 if the analysis is based on an incorrect uncertainty set or violates constraints."
+  },
+  {
+    "criterion_id": "A14",
+    "title": "离散化步长选取与误差控制验证",
+    "criterion_intent": "资源连续量被离散化引入误差。解必须证明所选步长不导致不可接受的偏差或最优性丧失。可通过与更细步长的比较或推导严格误差界。",
+    "why_this_is_branch_general": "所有离散化资源的DP方法均面临此问题；步长和舍入方式为设计选择，但证明结果不被严重扭曲的义务是普遍的。",
+    "full_score": 1.0,
+    "evaluation_method": [
+      "检查是否提供了与至少一个更细步长的比较（如 step 和 step/2），并报告最终财富差异。",
+      "若给出误差界，验证是否与观测差异相容。",
+      "评估报告差异是否足够小（例如最优财富的≤5%）以认为解准确。"
+    ],
+    "key_checks": [
+      "存在收敛性测试或误差界分析。",
+      "所选步长与更细步长的差异已量化。",
+      "讨论舍入方式（如最近邻）可能引入的偏差及其预期影响。",
+      "结论说明所选步长对问题精度要求足够。"
+    ],
+    "failure_tests": [
+      "无更细步长比较或误差分析。",
+      "步长间差异大（>10%）但无适当解释即被忽略。",
+      "步长选择随意无理由。",
+      "舍入方式系统性地偏误结果（如总是上舍）且未修正。"
+    ],
+    "confidence_scope": "若解证明离散化误差受控且结果稳定，则对数值最优的信心高。否则报告值可能显著偏离。",
+    "scoring_guidance": "运行收敛性测试、量化差异且差异可接受或差异原因有说服力解释得满分。有测试但差异大且未充分论证扣0.5分。无误差分析得0分。"
+  },
+  {
+    "criterion_id": "A15",
+    "title": "Linearization techniques are valid and do not compromise feasibility.",
+    "criterion_intent": "When logical conditions are linearized (e.g., arrival‑day no‑mining, start‑once‑buy, multiplayer interactions), the method (big‑M, indicator constraints, product linearization) must be mathematically sound and not inadvertently exclude valid solutions or allow invalid ones.",
+    "why_this_is_branch_general": "Declarative models often require linearization; incorrect linearization leads to wrong feasible regions and possibly wrong optimum.",
+    "full_score": 4,
+    "evaluation_method": [
+      "Examine linearization derivations or justification.",
+      "If big‑M is used, check that M values are justified and sufficiently large (but not excessively loose if causing numerical issues).",
+      "For product of binary variables, confirm encoding is exact (e.g., three inequalities) and does not over‑constrain.",
+      "Verify that logical implications are correctly transformed into linear constraints and that the transformation is reversible."
+    ],
+    "key_checks": [
+      "Big‑M values (if used) are justified with bounds (e.g., maximum resource amounts) and do not restrict the feasible region.",
+      "Product of binary variables linearization (y = x1·x2) uses three inequalities that exactly represent the product.",
+      "Conditional constraints (like 'can only mine if already at mine and not arrival day') are correctly linearized without introducing infeasibility or allowing violations.",
+      "Any 'either‑or' constraints (e.g., start purchase only on day 0) are handled without leakage."
+    ],
+    "failure_tests": [
+      "Big‑M too small, cutting off feasible high resource values, or too large causing numerical instability.",
+      "Linearization of product forces one variable to 1 incorrectly.",
+      "A conditional constraint is linearized such that the condition can be bypassed."
+    ],
+    "confidence_scope": "Medium; requires checking correctness of these reformulation tricks.",
+    "scoring_guidance": "Full score if all linearizations are correctly explained and no logical flaws. Deduct for unjustified or incorrect encoding that could affect feasibility or optimality."
+  },
+  {
+    "criterion_id": "A16",
+    "title": "The model has been solved to proven optimality (or satisfactory gap) with clear diagnostics.",
+    "criterion_intent": "Demonstrate that the MILP/CP model was actually solved, with evidence of solver performance (solve time, variable/constraint counts, optimality gap). At least the mandatory levels for the relevant problem part must be solved, and unsolved levels discussed (if applicable).",
+    "why_this_is_branch_general": "Without solver evidence, the solution is unproven.",
+    "full_score": 4,
+    "evaluation_method": [
+      "Check that solver details (name, version, time limit, threads, etc.) are reported.",
+      "Confirm at least the mandatory levels are solved to proven optimality (gap = 0) or, if not possible, a best feasible solution with gap reported.",
+      "Verify scalability discussion: variable/constraint sizes and any challenges for larger instances are addressed."
+    ],
+    "key_checks": [
+      "Solver and version mentioned.",
+      "Solve time and optimality gap reported for each solved level.",
+      "At least one mandatory level is proven optimal (or explained why not).",
+      "For any larger level attempted, either optimal solution or a best feasible with gap reported; if unsolvable, analytical reasoning.",
+      "Discussion of model size and scalability limits."
+    ],
+    "failure_tests": [
+      "No solver execution evidence (e.g., no log, no gap).",
+      "Solver fails to find any feasible solution for a required level.",
+      "Optimality gap not reported, or status not stated.",
+      "No scalability discussion for larger instances that might be unsolvable."
+    ],
+    "confidence_scope": "High; the report must include these.",
+    "scoring_guidance": "Full score if solver diagnostics are present for all solved levels, optimality is proven for required instances, and scalability is discussed. Partial if some diagnostics missing. Zero if no solver run evidence."
+  },
+  {
+    "criterion_id": "A17",
+    "title": "搜索充分性与最优证据",
+    "criterion_intent": "展示决策变量被系统性地探索，最终方案是在搜索空间中经过比较得出的较优解，而非仅凭一两次试探。对于多玩家关卡，应考察不同的路径分配方案。",
+    "why_this_is_branch_general": "启发式或仿真优化的答案质量高度依赖搜索的广度；缺乏比较的解不能作为可信的“最优”或“最佳”解。",
+    "full_score": 15,
+    "evaluation_method": [
+      "检查是否定义了明确的搜索变量（如矿山天数、起点资源量、waypoints）和探索范围。",
+      "检查是否展示了多个候选解的目标值对比，并标注所选方案的优势。",
+      "评估是否与基线策略（如直接不挖矿路线）进行了对比。",
+      "对于多玩家关卡，是否尝试了至少2-3种不同的路径分配（如是否考虑回避重叠边）。"
+    ],
+    "key_checks": [
+      "存在表格或图示显示某关键参数变化下目标值的变化趋势。",
+      "至少展示一个与简单基准的比较，并表明改进量。",
+      "若未穷举搜索，提供了下界或最优性分析（如基于路径长度上限的论证）。",
+      "多玩家方案考虑了有向边的重叠情况并有意减少惩罚。"
+    ],
+    "failure_tests": [
+      "仅测试一两种参数组合就声称最优。",
+      "未与不挖矿/无绕行基准对比，而所选方案可能并非更优。",
+      "多玩家关卡仅考虑一种固定路径分配，未探索任何分离方案。"
+    ],
+    "confidence_scope": "主要适用于确定性关卡和可参数化的随机关卡；对完全反应式策略，可考察waypoint或资源量参数的搜索。",
+    "scoring_guidance": "搜索系统、范围合理且提供了有力比较证据，得满分。搜索不够充分（如只有少数试探性组合）扣5-8分；未进行任何比较或仅凭单一试探得解扣10-12分。"
+  }
+]

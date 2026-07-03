@@ -1,0 +1,736 @@
+{
+  "source_rubrics": [
+    {
+      "source_key": "D01",
+      "source_rubric_id": "direction_01_dp_unified_v4",
+      "path": "D:\\rubric_workflow_llm_modules\\runs\\results\\高教社杯2020B\\output_direction_01_dp_unified\\claude_automation\\round_03\\evaluation\\refined_rubric.json"
+    },
+    {
+      "source_key": "D02",
+      "source_rubric_id": "direction_02_milp_declarative_refined_v3",
+      "path": "D:\\rubric_workflow_llm_modules\\runs\\results\\高教社杯2020B\\output_direction_02_milp_declarative\\claude_automation\\round_03\\evaluation\\refined_rubric.json"
+    },
+    {
+      "source_key": "D03",
+      "source_rubric_id": "robust_safe_v4_refined",
+      "path": "D:\\rubric_workflow_llm_modules\\runs\\results\\高教社杯2020B\\output_direction_03_robust_safe\\claude_automation\\round_03\\evaluation\\refined_rubric.json"
+    },
+    {
+      "source_key": "D04",
+      "source_rubric_id": "direction_04_game_theoretic_v4",
+      "path": "D:\\rubric_workflow_llm_modules\\runs\\results\\高教社杯2020B\\output_direction_04_game_theoretic\\claude_automation\\round_03\\evaluation\\refined_rubric.json"
+    },
+    {
+      "source_key": "D05",
+      "source_rubric_id": "direction_05_simulation_heuristic_v3",
+      "path": "D:\\rubric_workflow_llm_modules\\runs\\results\\高教社杯2020B\\output_direction_05_simulation_heuristic\\claude_automation\\round_03\\evaluation\\refined_rubric.json"
+    }
+  ],
+  "selected_criteria_order": [
+    {
+      "criterion_id": "A01",
+      "source_key": "D01",
+      "source_rubric_id": "direction_01_dp_unified_v4",
+      "source_criterion_id": "dp_constraint_encoding",
+      "full_score": 2.0
+    },
+    {
+      "criterion_id": "A02",
+      "source_key": "D05",
+      "source_rubric_id": "direction_05_simulation_heuristic_v3",
+      "source_criterion_id": "multi_punish_fidelity",
+      "full_score": 10.0
+    },
+    {
+      "criterion_id": "A03",
+      "source_key": "D05",
+      "source_rubric_id": "direction_05_simulation_heuristic_v3",
+      "source_criterion_id": "feasibility",
+      "full_score": 20.0
+    },
+    {
+      "criterion_id": "A04",
+      "source_key": "D05",
+      "source_rubric_id": "direction_05_simulation_heuristic_v3",
+      "source_criterion_id": "numerical_consistency",
+      "full_score": 15.0
+    },
+    {
+      "criterion_id": "A05",
+      "source_key": "D01",
+      "source_rubric_id": "direction_01_dp_unified_v4",
+      "source_criterion_id": "general_strategy_derivation",
+      "full_score": 1.5
+    },
+    {
+      "criterion_id": "A06",
+      "source_key": "D05",
+      "source_rubric_id": "direction_05_simulation_heuristic_v3",
+      "source_criterion_id": "multiplayer_reasoning",
+      "full_score": 5.0
+    },
+    {
+      "criterion_id": "A07",
+      "source_key": "D04",
+      "source_rubric_id": "direction_04_game_theoretic_v4",
+      "source_criterion_id": "dual_track_completeness",
+      "full_score": 5.0
+    },
+    {
+      "criterion_id": "A08",
+      "source_key": "D04",
+      "source_rubric_id": "direction_04_game_theoretic_v4",
+      "source_criterion_id": "nash_deviation_check",
+      "full_score": 4.0
+    },
+    {
+      "criterion_id": "A09",
+      "source_key": "D04",
+      "source_rubric_id": "direction_04_game_theoretic_v4",
+      "source_criterion_id": "efficiency_metrics_poa",
+      "full_score": 3.0
+    },
+    {
+      "criterion_id": "A10",
+      "source_key": "D01",
+      "source_rubric_id": "direction_01_dp_unified_v4",
+      "source_criterion_id": "non_anticipative_stochastic_modeling",
+      "full_score": 2.0
+    },
+    {
+      "criterion_id": "A11",
+      "source_key": "D03",
+      "source_rubric_id": "robust_safe_v4_refined",
+      "source_criterion_id": "robust_uncertainty_set",
+      "full_score": 10.0
+    },
+    {
+      "criterion_id": "A12",
+      "source_key": "D03",
+      "source_rubric_id": "robust_safe_v4_refined",
+      "source_criterion_id": "robust_strategy_adaptivity",
+      "full_score": 10.0
+    },
+    {
+      "criterion_id": "A13",
+      "source_key": "D03",
+      "source_rubric_id": "robust_safe_v4_refined",
+      "source_criterion_id": "worst_case_analysis",
+      "full_score": 10.0
+    },
+    {
+      "criterion_id": "A14",
+      "source_key": "D01",
+      "source_rubric_id": "direction_01_dp_unified_v4",
+      "source_criterion_id": "discretization_error_control",
+      "full_score": 1.0
+    },
+    {
+      "criterion_id": "A15",
+      "source_key": "D02",
+      "source_rubric_id": "direction_02_milp_declarative_refined_v3",
+      "source_criterion_id": "C5",
+      "full_score": 4.0
+    },
+    {
+      "criterion_id": "A16",
+      "source_key": "D02",
+      "source_rubric_id": "direction_02_milp_declarative_refined_v3",
+      "source_criterion_id": "C6",
+      "full_score": 4.0
+    },
+    {
+      "criterion_id": "A17",
+      "source_key": "D05",
+      "source_rubric_id": "direction_05_simulation_heuristic_v3",
+      "source_criterion_id": "search_adequacy",
+      "full_score": 15.0
+    }
+  ],
+  "source_coverage": [
+    {
+      "source_key": "D01",
+      "source_rubric_id": "direction_01_dp_unified_v4",
+      "source_criterion_id": "dp_constraint_encoding",
+      "decision": "selected",
+      "family_id": "F1",
+      "route_id": null,
+      "mapped_criterion_ids": [
+        "A01"
+      ],
+      "reason": "Retained as the strongest representative for encoding all deterministic game constraints."
+    },
+    {
+      "source_key": "D01",
+      "source_rubric_id": "direction_01_dp_unified_v4",
+      "source_criterion_id": "path_feasibility_internal_consistency",
+      "decision": "represented_by",
+      "family_id": "F2",
+      "route_id": null,
+      "mapped_criterion_ids": [
+        "A03",
+        "A04"
+      ],
+      "reason": "Trajectory consistency and feasibility are fully covered by the universal feasibility (D05 C4) and numerical verification (D05 C5) criteria."
+    },
+    {
+      "source_key": "D01",
+      "source_rubric_id": "direction_01_dp_unified_v4",
+      "source_criterion_id": "general_strategy_derivation",
+      "decision": "selected",
+      "family_id": "F3",
+      "route_id": null,
+      "mapped_criterion_ids": [
+        "A05"
+      ],
+      "reason": "Unique requirement for Problem 1; retained as a standalone obligation."
+    },
+    {
+      "source_key": "D01",
+      "source_rubric_id": "direction_01_dp_unified_v4",
+      "source_criterion_id": "non_anticipative_stochastic_modeling",
+      "decision": "selected",
+      "family_id": "F6",
+      "route_id": "route_stochastic",
+      "mapped_criterion_ids": [
+        "A10"
+      ],
+      "reason": "Retained as the primary criterion for correct stochastic non-anticipative modeling in optimization approaches."
+    },
+    {
+      "source_key": "D01",
+      "source_rubric_id": "direction_01_dp_unified_v4",
+      "source_criterion_id": "discretization_error_control",
+      "decision": "selected",
+      "family_id": "F7",
+      "route_id": "route_dp",
+      "mapped_criterion_ids": [
+        "A14"
+      ],
+      "reason": "Retained for DP-based solutions to demonstrate error control and convergence."
+    },
+    {
+      "source_key": "D01",
+      "source_rubric_id": "direction_01_dp_unified_v4",
+      "source_criterion_id": "multi_agent_penalty_application",
+      "decision": "represented_by",
+      "family_id": null,
+      "route_id": null,
+      "mapped_criterion_ids": [
+        "A02",
+        "A06"
+      ],
+      "reason": "Penalty application correctness covered by D05 C2; feasibility and coordination discussion covered by D05 C8."
+    },
+    {
+      "source_key": "D02",
+      "source_rubric_id": "direction_02_milp_declarative_refined_v3",
+      "source_criterion_id": "C1",
+      "decision": "represented_by",
+      "family_id": "F1",
+      "route_id": null,
+      "mapped_criterion_ids": [
+        "A01"
+      ],
+      "reason": "Position and movement constraints are encompassed within the universal game constraint encoding (D01 C1)."
+    },
+    {
+      "source_key": "D02",
+      "source_rubric_id": "direction_02_milp_declarative_refined_v3",
+      "source_criterion_id": "C2",
+      "decision": "represented_by",
+      "family_id": "F1",
+      "route_id": null,
+      "mapped_criterion_ids": [
+        "A01"
+      ],
+      "reason": "Resource and load constraints are encompassed within the universal game constraint encoding (D01 C1)."
+    },
+    {
+      "source_key": "D02",
+      "source_rubric_id": "direction_02_milp_declarative_refined_v3",
+      "source_criterion_id": "C3",
+      "decision": "represented_by",
+      "family_id": "F1",
+      "route_id": null,
+      "mapped_criterion_ids": [
+        "A01",
+        "A02"
+      ],
+      "reason": "Single-player economic rules covered by D01 C1; multiplayer penalty rules covered by D05 C2."
+    },
+    {
+      "source_key": "D02",
+      "source_rubric_id": "direction_02_milp_declarative_refined_v3",
+      "source_criterion_id": "C4",
+      "decision": "represented_by",
+      "family_id": "F1",
+      "route_id": null,
+      "mapped_criterion_ids": [
+        "A01"
+      ],
+      "reason": "Objective formulation and terminal conditions are part of the correct game model, covered by D01 C1."
+    },
+    {
+      "source_key": "D02",
+      "source_rubric_id": "direction_02_milp_declarative_refined_v3",
+      "source_criterion_id": "C5",
+      "decision": "selected",
+      "family_id": "F7",
+      "route_id": "route_milp",
+      "mapped_criterion_ids": [
+        "A15"
+      ],
+      "reason": "Retained for MILP solutions to ensure linearization techniques are valid."
+    },
+    {
+      "source_key": "D02",
+      "source_rubric_id": "direction_02_milp_declarative_refined_v3",
+      "source_criterion_id": "C6",
+      "decision": "selected",
+      "family_id": "F7",
+      "route_id": "route_milp",
+      "mapped_criterion_ids": [
+        "A16"
+      ],
+      "reason": "Retained for MILP solutions to require proven optimality and solver diagnostics."
+    },
+    {
+      "source_key": "D02",
+      "source_rubric_id": "direction_02_milp_declarative_refined_v3",
+      "source_criterion_id": "C7",
+      "decision": "represented_by",
+      "family_id": "F2",
+      "route_id": null,
+      "mapped_criterion_ids": [
+        "A03",
+        "A04"
+      ],
+      "reason": "Trajectory validation is fully covered by universal feasibility (D05 C4) and numerical verification (D05 C5)."
+    },
+    {
+      "source_key": "D03",
+      "source_rubric_id": "robust_safe_v4_refined",
+      "source_criterion_id": "robust_uncertainty_set",
+      "decision": "selected",
+      "family_id": "F6",
+      "route_id": "route_robust",
+      "mapped_criterion_ids": [
+        "A11"
+      ],
+      "reason": "Core criterion for robust modeling: definition and justification of uncertainty set including sensitivity."
+    },
+    {
+      "source_key": "D03",
+      "source_rubric_id": "robust_safe_v4_refined",
+      "source_criterion_id": "robust_strategy_adaptivity",
+      "decision": "selected",
+      "family_id": "F6",
+      "route_id": "route_robust",
+      "mapped_criterion_ids": [
+        "A12"
+      ],
+      "reason": "Core criterion for robust modeling: adaptive strategy with explicit non-anticipativity and constraint handling."
+    },
+    {
+      "source_key": "D03",
+      "source_rubric_id": "robust_safe_v4_refined",
+      "source_criterion_id": "resource_feasibility",
+      "decision": "represented_by",
+      "family_id": "F2",
+      "route_id": null,
+      "mapped_criterion_ids": [
+        "A03",
+        "A04"
+      ],
+      "reason": "Resource feasibility checks already covered by universal feasibility and numerical verification."
+    },
+    {
+      "source_key": "D03",
+      "source_rubric_id": "robust_safe_v4_refined",
+      "source_criterion_id": "geometric_consistency",
+      "decision": "represented_by",
+      "family_id": "F2",
+      "route_id": null,
+      "mapped_criterion_ids": [
+        "A03",
+        "A04"
+      ],
+      "reason": "Geometric calculations are verified through feasibility and numerical checks."
+    },
+    {
+      "source_key": "D03",
+      "source_rubric_id": "robust_safe_v4_refined",
+      "source_criterion_id": "worst_case_analysis",
+      "decision": "selected",
+      "family_id": "F6",
+      "route_id": "route_robust",
+      "mapped_criterion_ids": [
+        "A13"
+      ],
+      "reason": "Essential for robust approach: quantifies worst-case performance and compares to clairvoyant bound."
+    },
+    {
+      "source_key": "D03",
+      "source_rubric_id": "robust_safe_v4_refined",
+      "source_criterion_id": "sensitivity_analysis",
+      "decision": "represented_by",
+      "family_id": "F6",
+      "route_id": null,
+      "mapped_criterion_ids": [
+        "A11"
+      ],
+      "reason": "Sensitivity over K is already required within the uncertainty set definition (D03 C1)."
+    },
+    {
+      "source_key": "D03",
+      "source_rubric_id": "robust_safe_v4_refined",
+      "source_criterion_id": "numerical_validation",
+      "decision": "represented_by",
+      "family_id": "F2",
+      "route_id": null,
+      "mapped_criterion_ids": [
+        "A04"
+      ],
+      "reason": "Hand-checked numerical validation is fully covered by the universal numerical consistency criterion."
+    },
+    {
+      "source_key": "D03",
+      "source_rubric_id": "robust_safe_v4_refined",
+      "source_criterion_id": "mine_profitability_timing",
+      "decision": "represented_by",
+      "family_id": "F6",
+      "route_id": null,
+      "mapped_criterion_ids": [
+        "A12"
+      ],
+      "reason": "Mine profitability and timing constraints are explicitly addressed in the robust strategy adaptivity criterion."
+    },
+    {
+      "source_key": "D04",
+      "source_rubric_id": "direction_04_game_theoretic_v4",
+      "source_criterion_id": "dual_track_completeness",
+      "decision": "selected",
+      "family_id": "F5",
+      "route_id": null,
+      "mapped_criterion_ids": [
+        "A07"
+      ],
+      "reason": "Unique requirement for game theoretic solutions: must present both cooperative and non-cooperative analyses."
+    },
+    {
+      "source_key": "D04",
+      "source_rubric_id": "direction_04_game_theoretic_v4",
+      "source_criterion_id": "cooperative_correctness",
+      "decision": "represented_by",
+      "family_id": null,
+      "route_id": null,
+      "mapped_criterion_ids": [
+        "A02",
+        "A03",
+        "A04"
+      ],
+      "reason": "Cooperative solution correctness verified through penalty fidelity, feasibility, and numerical consistency."
+    },
+    {
+      "source_key": "D04",
+      "source_rubric_id": "direction_04_game_theoretic_v4",
+      "source_criterion_id": "nash_deviation_check",
+      "decision": "selected",
+      "family_id": "F5",
+      "route_id": null,
+      "mapped_criterion_ids": [
+        "A08"
+      ],
+      "reason": "Essential to verify Nash equilibrium condition through deviation evidence."
+    },
+    {
+      "source_key": "D04",
+      "source_rubric_id": "direction_04_game_theoretic_v4",
+      "source_criterion_id": "equilibrium_existence_refinement",
+      "decision": "represented_by",
+      "family_id": "F5",
+      "route_id": null,
+      "mapped_criterion_ids": [
+        "A08"
+      ],
+      "reason": "Core equilibrium verification is performed by D04 C3; refinement discussion is secondary and not separately retained."
+    },
+    {
+      "source_key": "D04",
+      "source_rubric_id": "direction_04_game_theoretic_v4",
+      "source_criterion_id": "penalty_handling_analysis",
+      "decision": "represented_by",
+      "family_id": null,
+      "route_id": null,
+      "mapped_criterion_ids": [
+        "A02",
+        "A06"
+      ],
+      "reason": "Penalty formulas covered by D05 C2; strategic analysis covered by multiplayer coordination reasoning."
+    },
+    {
+      "source_key": "D04",
+      "source_rubric_id": "direction_04_game_theoretic_v4",
+      "source_criterion_id": "efficiency_metrics_poa",
+      "decision": "selected",
+      "family_id": "F5",
+      "route_id": null,
+      "mapped_criterion_ids": [
+        "A09"
+      ],
+      "reason": "Required for game theory solutions: compute and interpret PoA/PoS."
+    },
+    {
+      "source_key": "D04",
+      "source_rubric_id": "direction_04_game_theoretic_v4",
+      "source_criterion_id": "sensitivity_robustness",
+      "decision": "represented_by",
+      "family_id": "F5",
+      "route_id": null,
+      "mapped_criterion_ids": [
+        "A09"
+      ],
+      "reason": "Sensitivity discussion is secondary; core efficiency metric is retained."
+    },
+    {
+      "source_key": "D04",
+      "source_rubric_id": "direction_04_game_theoretic_v4",
+      "source_criterion_id": "internal_consistency_manual_check",
+      "decision": "represented_by",
+      "family_id": "F2",
+      "route_id": null,
+      "mapped_criterion_ids": [
+        "A04"
+      ],
+      "reason": "Manual consistency checks are fully covered by universal numerical verification."
+    },
+    {
+      "source_key": "D04",
+      "source_rubric_id": "direction_04_game_theoretic_v4",
+      "source_criterion_id": "day_level_rule_execution",
+      "decision": "represented_by",
+      "family_id": "F1",
+      "route_id": null,
+      "mapped_criterion_ids": [
+        "A01"
+      ],
+      "reason": "Daily game rule execution is part of the universal constraint encoding."
+    },
+    {
+      "source_key": "D05",
+      "source_rubric_id": "direction_05_simulation_heuristic_v3",
+      "source_criterion_id": "core_sim_fidelity",
+      "decision": "represented_by",
+      "family_id": "F1",
+      "route_id": null,
+      "mapped_criterion_ids": [
+        "A01"
+      ],
+      "reason": "Core single-player rules are encompassed within the universal game constraint encoding."
+    },
+    {
+      "source_key": "D05",
+      "source_rubric_id": "direction_05_simulation_heuristic_v3",
+      "source_criterion_id": "multi_punish_fidelity",
+      "decision": "selected",
+      "family_id": "F1",
+      "route_id": null,
+      "mapped_criterion_ids": [
+        "A02"
+      ],
+      "reason": "Retained to specifically enforce correct multiplayer penalty formulas."
+    },
+    {
+      "source_key": "D05",
+      "source_rubric_id": "direction_05_simulation_heuristic_v3",
+      "source_criterion_id": "param_accuracy",
+      "decision": "represented_by",
+      "family_id": "F1",
+      "route_id": null,
+      "mapped_criterion_ids": [
+        "A01"
+      ],
+      "reason": "Correct parameter usage is part of overall model correctness, covered by D01 C1."
+    },
+    {
+      "source_key": "D05",
+      "source_rubric_id": "direction_05_simulation_heuristic_v3",
+      "source_criterion_id": "feasibility",
+      "decision": "selected",
+      "family_id": "F2",
+      "route_id": null,
+      "mapped_criterion_ids": [
+        "A03"
+      ],
+      "reason": "Universal requirement to verify hard constraint satisfaction."
+    },
+    {
+      "source_key": "D05",
+      "source_rubric_id": "direction_05_simulation_heuristic_v3",
+      "source_criterion_id": "numerical_consistency",
+      "decision": "selected",
+      "family_id": "F2",
+      "route_id": null,
+      "mapped_criterion_ids": [
+        "A04"
+      ],
+      "reason": "Universal requirement for manual number reconciliation and validation."
+    },
+    {
+      "source_key": "D05",
+      "source_rubric_id": "direction_05_simulation_heuristic_v3",
+      "source_criterion_id": "search_adequacy",
+      "decision": "selected",
+      "family_id": "F7",
+      "route_id": "route_sim",
+      "mapped_criterion_ids": [
+        "A17"
+      ],
+      "reason": "Retained for heuristic/simulation solutions to demonstrate sufficient search and near-optimality."
+    },
+    {
+      "source_key": "D05",
+      "source_rubric_id": "direction_05_simulation_heuristic_v3",
+      "source_criterion_id": "stochastic_handling",
+      "decision": "represented_by",
+      "family_id": "F6",
+      "route_id": null,
+      "mapped_criterion_ids": [
+        "A10"
+      ],
+      "reason": "Core non-anticipative stochastic modeling covered by D01 C4; statistical reporting details are secondary."
+    },
+    {
+      "source_key": "D05",
+      "source_rubric_id": "direction_05_simulation_heuristic_v3",
+      "source_criterion_id": "multiplayer_reasoning",
+      "decision": "selected",
+      "family_id": "F4",
+      "route_id": null,
+      "mapped_criterion_ids": [
+        "A06"
+      ],
+      "reason": "Retained to address explicit multi-player collaboration and penalty avoidance reasoning."
+    }
+  ],
+  "families": [
+    {
+      "family_id": "F1",
+      "title": "Game Modeling Correctness",
+      "family_type": "sum",
+      "criterion_ids": [
+        "A01",
+        "A02"
+      ],
+      "family_full_score": 12.0,
+      "formula": "score(A01) + score(A02)"
+    },
+    {
+      "family_id": "F2",
+      "title": "Solution Verification",
+      "family_type": "sum",
+      "criterion_ids": [
+        "A03",
+        "A04"
+      ],
+      "family_full_score": 35.0,
+      "formula": "score(A03) + score(A04)"
+    },
+    {
+      "family_id": "F3",
+      "title": "Problem 1 Strategy Derivation",
+      "family_type": "sum",
+      "criterion_ids": [
+        "A05"
+      ],
+      "family_full_score": 1.5,
+      "formula": "score(A05)"
+    },
+    {
+      "family_id": "F4",
+      "title": "Multiplayer Coordination Reasoning",
+      "family_type": "sum",
+      "criterion_ids": [
+        "A06"
+      ],
+      "family_full_score": 5.0,
+      "formula": "score(A06)"
+    },
+    {
+      "family_id": "F5",
+      "title": "Game Theory Requirements",
+      "family_type": "sum",
+      "criterion_ids": [
+        "A07",
+        "A08",
+        "A09"
+      ],
+      "family_full_score": 12.0,
+      "formula": "score(A07) + score(A08) + score(A09)"
+    },
+    {
+      "family_id": "F6",
+      "title": "Uncertainty Handling",
+      "family_type": "or_group",
+      "family_full_score": 30.0,
+      "routes": [
+        {
+          "route_id": "route_stochastic",
+          "criterion_ids": [
+            "A10"
+          ],
+          "route_full_score": 2.0,
+          "ratio_formula": "score(A10) / 2"
+        },
+        {
+          "route_id": "route_robust",
+          "criterion_ids": [
+            "A11",
+            "A12",
+            "A13"
+          ],
+          "route_full_score": 30.0,
+          "ratio_formula": "(score(A11) + score(A12) + score(A13)) / 30"
+        }
+      ],
+      "formula": "30 * max(score(A10) / 2, (score(A11) + score(A12) + score(A13)) / 30)"
+    },
+    {
+      "family_id": "F7",
+      "title": "Optimality Evidence",
+      "family_type": "or_group",
+      "family_full_score": 15.0,
+      "routes": [
+        {
+          "route_id": "route_dp",
+          "criterion_ids": [
+            "A14"
+          ],
+          "route_full_score": 1.0,
+          "ratio_formula": "score(A14) / 1"
+        },
+        {
+          "route_id": "route_milp",
+          "criterion_ids": [
+            "A15",
+            "A16"
+          ],
+          "route_full_score": 8.0,
+          "ratio_formula": "(score(A15) + score(A16)) / 8"
+        },
+        {
+          "route_id": "route_sim",
+          "criterion_ids": [
+            "A17"
+          ],
+          "route_full_score": 15.0,
+          "ratio_formula": "score(A17) / 15"
+        }
+      ],
+      "formula": "15 * max(score(A14) / 1, (score(A15) + score(A16)) / 8, score(A17) / 15)"
+    }
+  ],
+  "raw_total_full_score": 110.5,
+  "final_formula": "100 * (score(F1) + score(F2) + score(F3) + score(F4) + score(F5) + score(F6) + score(F7)) / 110.5"
+}

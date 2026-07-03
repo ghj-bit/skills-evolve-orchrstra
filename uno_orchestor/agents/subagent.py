@@ -855,7 +855,7 @@ class SubAgent:
             )
             return output[-3000:], exit_code
         except Exception as e:
-            return f"Command execution error: {e}", -1
+            return f"Command execution error: {type(e).__name__}: {e}", -1
 
     @staticmethod
     def _write_cmd_log(logs_dir, step, command, exit_code, output):
@@ -863,7 +863,7 @@ class SubAgent:
             from pathlib import Path
 
             log_file = Path(logs_dir) / "commands.log"
-            with log_file.open("a") as f:
+            with log_file.open("a", encoding="utf-8") as f:
                 f.write(
                     f"[{_now_iso()}] [Step {step}] {command}\n"
                     f"Exit: {exit_code}\n"

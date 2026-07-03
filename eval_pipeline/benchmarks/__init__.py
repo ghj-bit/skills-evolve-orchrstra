@@ -12,6 +12,7 @@ from .gaia import GAIA
 from .livecodebench import LiveCodeBench
 from .toolbench import ToolBench
 from .mrcr import MRCR
+from .rubric_workflow import RubricWorkflow
 
 BENCH_REGISTRY = {
     # Agentic (need environment interaction)
@@ -35,4 +36,6 @@ BENCH_REGISTRY = {
     "toolbench": ToolBench,
     # Long-context reasoning
     "mrcr": MRCR,
+    # File-producing rubric-scored math-modeling workflows
+    "rubric_workflow": RubricWorkflow,
 }
