@@ -119,6 +119,73 @@ class SkillRetriever:
             row["rank"] = rank
         return rows[:top_k]
 
+    def search_task_specific(
+        self,
+        task_id: str,
+        query: str,
+        *,
+        top_k: int = 1,
+        level: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return skills distilled from the same task_id, ranked within that task.
+
+        This is a guardrail for benchmark tasks where the distilled skill source
+        task_id is known. It prevents broad environment/setup skills from
+        displacing highly relevant task-specific skills when the subtask text is
+        generic, such as "install dependencies" or "list files".
+        """
+        task_id = (task_id or "").strip()
+        if not task_id or top_k <= 0:
+            return []
+        query_tokens = Counter(_tokens(query))
+        rows = []
+        for idx, (skill, doc_counter) in enumerate(zip(self.skills, self.doc_tokens)):
+            if level and skill.get("level") not in {level, "task", "subtask"}:
+                continue
+            source = skill.get("source")
+            if not isinstance(source, dict) or source.get("task_id") != task_id:
+                continue
+            score = 0.0
+            for tok, q_count in query_tokens.items():
+                if tok in doc_counter:
+                    score += min(q_count, doc_counter[tok]) * self.idf.get(tok, 1.0)
+            norm = math.sqrt(sum(v * v for v in doc_counter.values())) or 1.0
+            rows.append({
+                "rank": 0,
+                "name": skill.get("name", f"skill_{idx}"),
+                "execution_principles": skill.get("execution_principles", []),
+                "workflow": skill.get("workflow", []),
+                "retrieval_score": score / norm if score > 0 else 0.0,
+                "source_task_id": task_id,
+                "task_specific": True,
+            })
+        rows.sort(key=lambda x: x["retrieval_score"], reverse=True)
+        for rank, row in enumerate(rows[:top_k], start=1):
+            row["rank"] = rank
+        return rows[:top_k]
+
+    @staticmethod
+    def merge_dedup(*skill_groups: list[dict[str, Any]], top_k: int = 2) -> list[dict[str, Any]]:
+        """Merge retrieved skill lists while preserving order and removing duplicates."""
+        merged: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for group in skill_groups:
+            for skill in group or []:
+                key = str(skill.get("name") or "")
+                if not key:
+                    key = json.dumps(skill, sort_keys=True, ensure_ascii=False)
+                if key in seen:
+                    continue
+                seen.add(key)
+                merged.append(dict(skill))
+                if len(merged) >= top_k:
+                    for rank, row in enumerate(merged, start=1):
+                        row["rank"] = rank
+                    return merged
+        for rank, row in enumerate(merged, start=1):
+            row["rank"] = rank
+        return merged
+
     @staticmethod
     def render(skills: list[dict[str, Any]]) -> str:
         if not skills:

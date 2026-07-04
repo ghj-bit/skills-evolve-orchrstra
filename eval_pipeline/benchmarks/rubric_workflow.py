@@ -45,14 +45,17 @@ runs inside a persistent output workspace.
 ## Rules
 - Each delegate_task consumes one attempt. The workspace persists, so later
   delegations see the previous worker's changes.
-- Start by delegating a concrete subtask, not by describing the whole task.
+- Start by delegating a concrete milestone, not by describing the whole task.
+  The benchmark normally has only 8 planner attempts, so a "subtask" must be
+  large enough to produce durable progress.
 - After the worker returns `status=done`, inspect its `completed` list and
   `issues`. If it really addressed every requirement and
   results/solution_report.md exists, call `submit`; if not, delegate another
   subtask with explicit instructions for what is missing.
 - If the worker returns `status=partial` or `status=error`, the next
-  delegate_task must directly address the unresolved `issues`. Do not restart
-  from the original task unless the observation says required files are missing.
+  delegate_task must directly address the unresolved `issues` and produce the
+  missing artifact in the same delegation. Do not restart from the original
+  task unless the observation says required files are missing.
 - Treat the latest tool observation as the source of truth. Before each
   delegate_task, compare the requested instruction with the latest
   `completed`, `issues`, and workspace snapshot.
@@ -68,7 +71,21 @@ runs inside a persistent output workspace.
   exact missing artifact it will produce. Do not ask the worker to "read all
   files" again unless the latest observation explicitly says required files are
   missing or unreadable.
-- Prefer small, verifiable delegations over one monolithic "do everything".""" 
+- Prefer broad, verifiable milestone delegations over tiny steps. A good
+  delegation should usually complete one of these artifacts: data summary plus
+  modeling plan; solver/results for multiple related subproblems; validated
+  spreadsheet/result files; final report; or a submit-ready repair.
+- Do not delegate only "check code", "inspect files", "fix syntax", or "read
+  data" unless that is the last blocker. Instead, ask the worker to inspect,
+  fix, run, validate, and write the final artifact in one delegation.
+- For multi-part math-modeling problems, group work by subproblem families
+  (for example levels 1-2, 3-4, 5-6) rather than spending several attempts on a
+  single level. If a coarse solver is enough to support the report, write it,
+  validate it, and move on.
+- Once results/solution_report.md exists, do not delegate more discovery or
+  reading. Submit immediately if the report is adequate; otherwise delegate one
+  final report-completion task that fills the missing sections and then submit.
+""" 
 
 
 def _now_iso() -> str:
@@ -80,12 +97,16 @@ def _budget_note(attempt_idx: int, max_attempts: int) -> str:
     if remaining <= 2:
         return (
             f"CRITICAL: Only {remaining} delegation attempt(s) left. "
-            "Use the latest observation to finish missing work or submit if the report is ready."
+            "Do not start new discovery. If a report exists, submit it unless a "
+            "specific required section is missing. If work is missing, delegate "
+            "one broad finalization task that completes all remaining results, "
+            "updates results/solution_report.md, validates it, and returns ready-to-submit status."
         )
     if attempt_idx > 1:
         return (
             f"Budget: {remaining}/{max_attempts} attempts remaining. "
-            "Do not repeat completed work; delegate only the unresolved issues from the latest observation."
+            "Do not repeat completed work. Use broad milestone delegations; "
+            "avoid one-attempt tasks that only read files, inspect code, or fix a single syntax error."
         )
     return f"Budget: {remaining}/{max_attempts} attempts remaining."
 
@@ -721,17 +742,27 @@ def _format_worker_observation(result: Dict[str, Any], workspace: Path) -> str:
     issues = result.get("issues") or []
     completed = result.get("completed") or []
     if status == "done" and snapshot.get("solution_report_exists"):
-        next_action = "The final report exists. If it is complete, call submit with results/solution_report.md."
+        next_action = (
+            "The final report already exists. Do not delegate more discovery or reading. "
+            "Call submit with results/solution_report.md unless the latest observation names a "
+            "specific required report section or result artifact that is missing. If something "
+            "is missing, delegate exactly one finalization task that updates the report and "
+            "returns ready-to-submit status."
+        )
     elif issues:
         next_action = (
             "Continue from the existing workspace. Do not repeat completed work. "
             "The next delegate_task should directly resolve these unresolved issues: "
             + json.dumps(issues, ensure_ascii=False)
+            + ". The delegation must inspect/fix/run/validate in one attempt and produce the "
+            "missing durable artifact, not merely diagnose the issue."
         )
     elif completed:
         next_action = (
             "Continue from the existing workspace. Do not repeat completed work. "
-            "Delegate the next missing modeling, computation, validation, or report-writing step."
+            "Delegate the next missing milestone: solve a group of remaining subproblems, "
+            "generate validated result artifacts, or write/update results/solution_report.md. "
+            "Do not spend another attempt only reading files or checking code."
         )
     else:
         next_action = (
@@ -742,7 +773,8 @@ def _format_worker_observation(result: Dict[str, Any], workspace: Path) -> str:
         "Do not ask for already completed work again. Reuse existing files and "
         "workspace state. If discovery/reading is listed as completed, the next "
         "task must be modeling, computation, validation, report writing, or a "
-        "specific fix for an issue."
+        "specific fix for an issue. Keep each delegation coarse enough to make "
+        "visible progress toward final submission within the remaining attempt budget."
     )
     return "\n".join([
         "Planner next-action guidance:",

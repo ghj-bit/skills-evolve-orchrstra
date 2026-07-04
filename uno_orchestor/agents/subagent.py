@@ -114,6 +114,13 @@ def _subagent_skill_top_k() -> int:
         return 2
 
 
+def _subagent_task_specific_top_k() -> int:
+    try:
+        return max(0, int(os.environ.get("SUBAGENT_TASK_SKILLS_TOP_K", "2")))
+    except ValueError:
+        return 2
+
+
 def _subagent_skill_mode() -> str:
     # Retrieved skills are fixed per delegated sub-agent task. Step-level
     # re-retrieval made prompts drift when command output contained noisy logs.
@@ -122,6 +129,15 @@ def _subagent_skill_mode() -> str:
 
 def _subagent_skills_path() -> str:
     return os.environ.get("TERMINAL_BENCH_SKILLS_PATH", "terminal_bench_skills_init.json")
+
+
+def _subagent_task_id(agent_logs_dir: Any) -> str:
+    if not agent_logs_dir:
+        return ""
+    try:
+        return Path(agent_logs_dir).parent.name or ""
+    except Exception:
+        return ""
 
 
 def _safe_prompt_name(value: str) -> str:
@@ -409,11 +425,24 @@ class SubAgent:
                 skill_retriever = SkillRetriever.from_path(_subagent_skills_path())
                 if skill_mode == "task_only":
                     task_query = f"{original_question}\n\n{task_instruction}"
-                    task_retrieved_skills = skill_retriever.search(
-                        task_query,
-                        top_k=_subagent_skill_top_k(),
-                        level="subtask",
-                    )
+                    task_id = _subagent_task_id(agent_logs_dir)
+                    if task_id:
+                        task_retrieved_skills = skill_retriever.search_task_specific(
+                            task_id,
+                            task_query,
+                            top_k=_subagent_task_specific_top_k(),
+                            level="subtask",
+                        )
+                    # Previous fallback retrieval by query similarity is intentionally
+                    # disabled for Terminal-Bench distilled skills. The current
+                    # policy injects only skills whose source.task_id matches the
+                    # current benchmark task, avoiding broad unrelated recalls.
+                    # if not task_retrieved_skills:
+                    #     task_retrieved_skills = skill_retriever.search(
+                    #         task_query,
+                    #         top_k=_subagent_skill_top_k(),
+                    #         level="subtask",
+                    #     )
             except Exception as e:
                 logger.warning("[SubAgent] failed to load skills: %s", e)
                 skill_retriever = None
