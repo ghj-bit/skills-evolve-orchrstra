@@ -67,3 +67,4 @@
 *.swp
 *.swo
 __pycache__/
+*.zip

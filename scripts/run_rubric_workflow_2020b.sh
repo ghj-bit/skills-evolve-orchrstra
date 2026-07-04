@@ -88,6 +88,7 @@ trap 'cleanup TERM' TERM
     echo "Worker model:  ${WORKER_MODEL_ID}"
     echo "API_BASE:      ${API_BASE}"
     echo "Output:        ${OUT_DIR}"
+    echo "Live trace:    ${OUT_DIR}/logs/<task_id>/live_trajectory.json"
     echo "UNO_POOLS_PATH:${UNO_POOLS_PATH}"
     echo "GIT_BASH:      ${GIT_BASH:-}"
     echo "LANG:          ${LANG:-}"

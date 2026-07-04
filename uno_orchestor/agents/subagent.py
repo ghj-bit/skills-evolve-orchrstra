@@ -77,6 +77,16 @@ def _subagent_include_step_logs() -> bool:
     }
 
 
+def _subagent_return_transcript() -> bool:
+    return os.environ.get("SUBAGENT_RETURN_TRANSCRIPT", "0").lower() not in {
+        "",
+        "0",
+        "false",
+        "no",
+        "off",
+    }
+
+
 def _subagent_skills_enabled() -> bool:
     return os.environ.get("SUBAGENT_ENABLE_SKILLS", "0").lower() not in {
         "",
@@ -436,6 +446,7 @@ class SubAgent:
         steps_taken = 0
         commands_log = []
         step_logs = []
+        llm_transcript = []
         prompt_tokens = 0
         completion_tokens = 0
         total_cost = 0.0
@@ -476,6 +487,19 @@ class SubAgent:
                 request_extra_body = {"enable_thinking": False}
 
                 for _attempt in range(2):
+                    transcript_entry = None
+                    if _subagent_return_transcript():
+                        transcript_entry = {
+                            "step": steps_taken,
+                            "retry_attempt": _attempt + 1,
+                            "model": model,
+                            "api_base": self.api_base,
+                            "temperature": 0.1,
+                            "max_tokens": 2048,
+                            "extra_body": request_extra_body,
+                            "input_messages": json.loads(json.dumps(messages, ensure_ascii=False)),
+                            "started_at": _now_iso(),
+                        }
                     try:
                         _dump_subagent_prompt(
                             agent_logs_dir,
@@ -497,6 +521,17 @@ class SubAgent:
                         usage = getattr(resp, "usage", None)
                         step_prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
                         step_completion_tokens = getattr(usage, "completion_tokens", 0) or 0
+                        if transcript_entry is not None:
+                            transcript_entry.update({
+                                "ended_at": _now_iso(),
+                                "output_content": raw,
+                                "usage": {
+                                    "prompt_tokens": step_prompt_tokens,
+                                    "completion_tokens": step_completion_tokens,
+                                    "tokens": step_prompt_tokens + step_completion_tokens,
+                                },
+                            })
+                            llm_transcript.append(transcript_entry)
                         prompt_tokens += step_prompt_tokens
                         completion_tokens += step_completion_tokens
                         try:
@@ -522,6 +557,13 @@ class SubAgent:
                         break
                     except Exception as e:
                         llm_error = str(e)
+                        if transcript_entry is not None:
+                            transcript_entry.update({
+                                "ended_at": _now_iso(),
+                                "error": llm_error,
+                                "exception_type": type(e).__name__,
+                            })
+                            llm_transcript.append(transcript_entry)
                         debug_text = _llm_exception_debug(
                             e,
                             model=model,
@@ -750,6 +792,7 @@ class SubAgent:
                 "step_skills": step_retrieved_skills,
             },
             **({"step_logs": step_logs} if _subagent_include_step_logs() else {}),
+            **({"llm_transcript": llm_transcript} if _subagent_return_transcript() else {}),
         }
 
     async def _summarize_finish_result(

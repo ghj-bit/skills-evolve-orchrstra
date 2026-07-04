@@ -27,17 +27,67 @@ HISTORICAL_ROOTS = [
     r"D:\vscode_project\rubric_workflow_llm_modules",
 ]
 
-PLANNER_SYSTEM_PROMPT = """You are a planning controller for a math-modeling benchmark.
+PLANNER_SYSTEM_PROMPT = """\
+You are the Planner for a math-modeling benchmark. You do NOT execute commands
+or write files directly. Instead, you delegate work to a worker sub-agent that
+runs inside a persistent output workspace.
 
-You must solve the problem by delegating concrete implementation/report-writing
-subtasks to worker agents. The workspace persists across delegate_task calls.
-Use submit only after output/results/solution_report.md exists and the report is
-ready for final rubric scoring. Do not ask for rubric scores during intermediate
-steps."""
+## Tools
+- delegate_task(worker_model, instruction)
+    Delegate a concrete sub-task to the given worker model. The worker runs
+    commands in the workspace (state persists across delegations), then returns
+    a structured report: status (done/partial/error), what it did,
+    any issues.
+- submit(report_path, reason)
+    Declare the whole task complete. The harness runs final rubric scoring on
+    the submitted report.
+
+## Rules
+- Each delegate_task consumes one attempt. The workspace persists, so later
+  delegations see the previous worker's changes.
+- Start by delegating a concrete subtask, not by describing the whole task.
+- After the worker returns `status=done`, inspect its `completed` list and
+  `issues`. If it really addressed every requirement and
+  results/solution_report.md exists, call `submit`; if not, delegate another
+  subtask with explicit instructions for what is missing.
+- If the worker returns `status=partial` or `status=error`, the next
+  delegate_task must directly address the unresolved `issues`. Do not restart
+  from the original task unless the observation says required files are missing.
+- Treat the latest tool observation as the source of truth. Before each
+  delegate_task, compare the requested instruction with the latest
+  `completed`, `issues`, and workspace snapshot.
+- Do not repeat completed discovery work. If the latest observation says the
+  problem files, submission schema, weather/data files, or workspace listing
+  were already read, the next delegation must move to the next unresolved
+  modeling, computation, validation, spreadsheet/report-writing, or submission
+  step.
+- A worker `status=done` only means the delegated subtask finished. If
+  `issues` is non-empty or results/solution_report.md is missing, continue from
+  the existing workspace and resolve those concrete issues.
+- Each new delegate_task must name what prior work it is reusing and what
+  exact missing artifact it will produce. Do not ask the worker to "read all
+  files" again unless the latest observation explicitly says required files are
+  missing or unreadable.
+- Prefer small, verifiable delegations over one monolithic "do everything".""" 
 
 
 def _now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _budget_note(attempt_idx: int, max_attempts: int) -> str:
+    remaining = max_attempts - attempt_idx
+    if remaining <= 2:
+        return (
+            f"CRITICAL: Only {remaining} delegation attempt(s) left. "
+            "Use the latest observation to finish missing work or submit if the report is ready."
+        )
+    if attempt_idx > 1:
+        return (
+            f"Budget: {remaining}/{max_attempts} attempts remaining. "
+            "Do not repeat completed work; delegate only the unresolved issues from the latest observation."
+        )
+    return f"Budget: {remaining}/{max_attempts} attempts remaining."
 
 
 def _planner_tools(worker_pool: List[str]) -> List[Dict[str, Any]]:
@@ -49,14 +99,21 @@ def _planner_tools(worker_pool: List[str]) -> List[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "delegate_task",
-                "description": "Delegate one concrete workspace task to a worker agent.",
+                "description": (
+                    "Delegate a concrete sub-task to a worker model that runs "
+                    "commands in the shared output workspace."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "worker_model": worker_schema,
                         "instruction": {
                             "type": "string",
-                            "description": "Specific task to execute in the shared workspace.",
+                            "description": (
+                                "Self-contained natural-language instructions for the worker. "
+                                "Include the specific missing work from the latest observation, "
+                                "and tell the worker to reuse existing workspace files."
+                            ),
                         },
                     },
                     "required": ["worker_model", "instruction"],
@@ -67,7 +124,10 @@ def _planner_tools(worker_pool: List[str]) -> List[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "submit",
-                "description": "Submit the final solution report for scoring.",
+                "description": (
+                    "Declare the math-modeling solution complete. Runs final "
+                    "rubric scoring on the submitted report."
+                ),
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -121,6 +181,7 @@ class RubricWorkflow(BaseBenchmark):
         self.max_attempts = int(os.environ.get("RUBRIC_WORKFLOW_MAX_ATTEMPTS", "8"))
         self.subagent_max_steps = int(os.environ.get("RUBRIC_WORKFLOW_SUBAGENT_MAX_STEPS", "40"))
         self.cmd_timeout = int(os.environ.get("RUBRIC_WORKFLOW_CMD_TIMEOUT", "7200"))
+        self._live_trace_task_selected = False
 
     def load(self, max_tasks: Optional[int] = None) -> List[Task]:
         tasks: List[Task] = []
@@ -155,7 +216,10 @@ class RubricWorkflow(BaseBenchmark):
         return router_output
 
     def verify(self, task: Task, answer: str, logs_dir: str = None) -> VerifyResult:
-        score_info = self._score_report(task, Path(logs_dir or ".") / task.task_id / "workspace" / "output")
+        score_info = self._score_report(
+            task,
+            (Path(logs_dir or ".") / task.task_id / "workspace" / "output").resolve(),
+        )
         return VerifyResult(
             task_id=task.task_id,
             reward=score_info.get("reward", 0.0),
@@ -167,17 +231,17 @@ class RubricWorkflow(BaseBenchmark):
         return _run_async(self._run_interactive_async(task, router, Path(logs_dir or ".")))
 
     async def _run_interactive_async(self, task: Task, router, logs_root: Path) -> VerifyResult:
-        base = logs_root / task.task_id
-        workspace = base / "workspace" / "output"
-        planner_logs = base / "planner"
-        agent_logs = base / "agent"
-        verifier_logs = base / "verifier"
+        base = (logs_root / task.task_id).resolve()
+        workspace = (base / "workspace" / "output").resolve()
+        planner_logs = (base / "planner").resolve()
+        agent_logs = (base / "agent").resolve()
+        verifier_logs = (base / "verifier").resolve()
         for path in (workspace, planner_logs, agent_logs, verifier_logs):
             path.mkdir(parents=True, exist_ok=True)
 
         problem_id = task.raw["problem_id"]
-        problem_dir = Path(task.raw["problem_dir"])
-        submission_schema = Path(task.raw["submission_schema"])
+        problem_dir = Path(task.raw["problem_dir"]).resolve()
+        submission_schema = Path(task.raw["submission_schema"]).resolve()
         prompt = _render_prompt(task.raw["prompt_template"], problem_id, problem_dir, workspace, submission_schema)
         (base / "rendered_prompt.md").write_text(prompt, encoding="utf-8")
 
@@ -207,10 +271,47 @@ class RubricWorkflow(BaseBenchmark):
         last_error: Optional[str] = None
         started_at = _now_iso()
         start_perf = time.perf_counter()
+        live_trace_enabled = not self._live_trace_task_selected
+        self._live_trace_task_selected = True
+        live_trace_path = base / "live_trajectory.json"
+        live_trace: Optional[Dict[str, Any]] = None
+        if live_trace_enabled:
+            live_trace = {
+                "task_id": task.task_id,
+                "benchmark": self.name,
+                "started_at": started_at,
+                "updated_at": started_at,
+                "workspace": str(workspace),
+                "rendered_prompt_path": str(base / "rendered_prompt.md"),
+                "events": [
+                    {
+                        "type": "task_start",
+                        "timestamp": started_at,
+                        "planner_initial_messages": _json_clone(messages),
+                        "tools": _json_clone(tools),
+                    }
+                ],
+            }
+            _write_live_trace(live_trace_path, live_trace)
 
         try:
             for attempt in range(self.max_attempts):
-                resp = router.chat_completions(messages, tools=tools)
+                live_messages = messages + [
+                    {"role": "system", "content": _budget_note(attempt + 1, self.max_attempts)}
+                ]
+                planner_event: Optional[Dict[str, Any]] = None
+                if live_trace is not None:
+                    planner_event = {
+                        "type": "planner_call",
+                        "attempt": attempt + 1,
+                        "started_at": _now_iso(),
+                        "input_messages": _json_clone(live_messages),
+                        "tools": _json_clone(tools),
+                    }
+                    live_trace["events"].append(planner_event)
+                    _write_live_trace(live_trace_path, live_trace)
+
+                resp = router.chat_completions(live_messages, tools=tools)
                 planner_usage = _usage_from_response(
                     resp,
                     getattr(router, "planner_model", getattr(router, "model_name", "")),
@@ -239,6 +340,17 @@ class RubricWorkflow(BaseBenchmark):
                     "tool_calls": tool_calls,
                 }
                 trajectory.append(step_record)
+                if planner_event is not None:
+                    planner_event.update({
+                        "ended_at": _now_iso(),
+                        "output": {
+                            "content": content,
+                            "tool_calls": _json_clone(tool_calls),
+                            "usage": planner_usage,
+                            "model": resp.get("model"),
+                        },
+                    })
+                    _write_live_trace(live_trace_path, live_trace)
 
                 if not tool_calls:
                     last_error = "planner returned no tool call"
@@ -251,18 +363,38 @@ class RubricWorkflow(BaseBenchmark):
 
                     if name == "submit":
                         submitted_report = str(args.get("report_path") or workspace / "results" / "solution_report.md")
+                        submit_observation = _submission_observation(workspace, submitted_report)
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tc_id,
-                            "content": _submission_observation(workspace, submitted_report),
+                            "content": submit_observation,
                         })
                         step_record["submit"] = {"report_path": submitted_report, "reason": args.get("reason", "")}
+                        if live_trace is not None:
+                            live_trace["events"].append({
+                                "type": "submit",
+                                "timestamp": _now_iso(),
+                                "tool_call_id": tc_id,
+                                "arguments": _json_clone(args),
+                                "observation": submit_observation,
+                            })
+                            _write_live_trace(live_trace_path, live_trace)
                         submit_called = True
                         break
 
                     if name != "delegate_task":
                         msg = f"Unknown tool '{name}' ignored."
                         messages.append({"role": "tool", "tool_call_id": tc_id, "content": msg})
+                        if live_trace is not None:
+                            live_trace["events"].append({
+                                "type": "unknown_tool",
+                                "timestamp": _now_iso(),
+                                "tool_call_id": tc_id,
+                                "name": name,
+                                "arguments": _json_clone(args),
+                                "observation": msg,
+                            })
+                            _write_live_trace(live_trace_path, live_trace)
                         continue
 
                     worker_model = args.get("worker_model") or (worker_pool[0] if worker_pool else "")
@@ -272,6 +404,16 @@ class RubricWorkflow(BaseBenchmark):
                     if not instruction.strip():
                         msg = "Empty instruction; delegate_task skipped."
                         messages.append({"role": "tool", "tool_call_id": tc_id, "content": msg})
+                        if live_trace is not None:
+                            live_trace["events"].append({
+                                "type": "delegate_skipped",
+                                "timestamp": _now_iso(),
+                                "tool_call_id": tc_id,
+                                "worker_model": worker_model,
+                                "arguments": _json_clone(args),
+                                "observation": msg,
+                            })
+                            _write_live_trace(live_trace_path, live_trace)
                         continue
 
                     from uno_orchestor.agents.subagent import SubAgent
@@ -282,14 +424,41 @@ class RubricWorkflow(BaseBenchmark):
                         max_steps=self.subagent_max_steps,
                         cmd_timeout=self.cmd_timeout,
                     )
-                    sub_result = await subagent.run(
-                        model=worker_model,
-                        task_instruction=_worker_instruction(instruction, workspace, problem_dir, submission_schema),
-                        original_question=prompt,
-                        executor=executor,
-                        agent_logs_dir=agent_logs,
-                        tool_call_id=tc_id,
-                    )
+                    worker_prompt = _worker_instruction(instruction, workspace, problem_dir, submission_schema)
+                    delegate_event: Optional[Dict[str, Any]] = None
+                    if live_trace is not None:
+                        delegate_event = {
+                            "type": "delegate_task",
+                            "tool_call_id": tc_id,
+                            "started_at": _now_iso(),
+                            "worker_model": worker_model,
+                            "arguments": _json_clone(args),
+                            "worker_input": {
+                                "task_instruction": worker_prompt,
+                                "original_question": prompt,
+                            },
+                        }
+                        live_trace["events"].append(delegate_event)
+                        _write_live_trace(live_trace_path, live_trace)
+
+                    previous_transcript_env = os.environ.get("SUBAGENT_RETURN_TRANSCRIPT")
+                    if live_trace is not None:
+                        os.environ["SUBAGENT_RETURN_TRANSCRIPT"] = "1"
+                    try:
+                        sub_result = await subagent.run(
+                            model=worker_model,
+                            task_instruction=worker_prompt,
+                            original_question=prompt,
+                            executor=executor,
+                            agent_logs_dir=agent_logs,
+                            tool_call_id=tc_id,
+                        )
+                    finally:
+                        if live_trace is not None:
+                            if previous_transcript_env is None:
+                                os.environ.pop("SUBAGENT_RETURN_TRANSCRIPT", None)
+                            else:
+                                os.environ["SUBAGENT_RETURN_TRANSCRIPT"] = previous_transcript_env
                     routed_models.append(worker_model)
                     usage = {
                         "model": worker_model,
@@ -301,6 +470,15 @@ class RubricWorkflow(BaseBenchmark):
                     subagent_usages.append(usage)
                     obs = _format_worker_observation(sub_result, workspace)
                     messages.append({"role": "tool", "tool_call_id": tc_id, "content": obs})
+                    if delegate_event is not None:
+                        delegate_event.update({
+                            "ended_at": _now_iso(),
+                            "worker_output": _json_clone(sub_result),
+                            "worker_llm_transcript": _json_clone(sub_result.get("llm_transcript", [])),
+                            "planner_observation": obs,
+                            "usage": usage,
+                        })
+                        _write_live_trace(live_trace_path, live_trace)
                     step_record.setdefault("delegates", []).append({
                         "worker_model": worker_model,
                         "instruction": instruction,
@@ -312,6 +490,14 @@ class RubricWorkflow(BaseBenchmark):
                     break
         except Exception as exc:
             last_error = f"interactive rubric workflow failed: {exc}"
+            if live_trace is not None:
+                live_trace["events"].append({
+                    "type": "error",
+                    "timestamp": _now_iso(),
+                    "error": last_error,
+                    "exception_type": type(exc).__name__,
+                })
+                _write_live_trace(live_trace_path, live_trace)
         finally:
             await executor.cleanup()
 
@@ -322,6 +508,22 @@ class RubricWorkflow(BaseBenchmark):
         planner_totals = _sum_usage(planner_usages)
         subagent_totals = _sum_usage(subagent_usages)
         total_usage = _sum_usage([planner_totals, subagent_totals])
+        if live_trace is not None:
+            live_trace.update({
+                "ended_at": _now_iso(),
+                "elapsed_seconds": round(time.perf_counter() - start_perf, 3),
+                "submit_called": submit_called,
+                "submitted_report": submitted_report,
+                "last_error": last_error,
+                "reward": score_info.get("reward", 0.0),
+                "score_info": score_info,
+                "route_count": len(routed_models),
+                "routed_models": routed_models,
+                "planner_usage": planner_totals,
+                "subagent_usage": subagent_totals,
+                **total_usage,
+            })
+            _write_live_trace(live_trace_path, live_trace)
         trajectory_payload = {
             "task_id": task.task_id,
             "benchmark": self.name,
@@ -457,6 +659,9 @@ class RubricWorkflow(BaseBenchmark):
 
 
 def _render_prompt(template: str, problem_id: str, problem_dir: Path, output_dir: Path, schema: Path) -> str:
+    problem_dir = problem_dir.resolve()
+    output_dir = output_dir.resolve()
+    schema = schema.resolve()
     rendered = template.replace("{{PROBLEM_DIR}}", str(problem_dir))
     rendered = rendered.replace("{{OUTPUT_DIR}}", str(output_dir))
     rendered = rendered.replace("{{SUBMISSION_SCHEMA_PATH}}", str(schema))
@@ -479,14 +684,32 @@ def _render_prompt(template: str, problem_id: str, problem_dir: Path, output_dir
     return rendered
 
 
+def _bash_path(path: Path) -> str:
+    resolved = path.resolve()
+    text = str(resolved)
+    if os.name == "nt" and len(text) >= 2 and text[1] == ":":
+        drive = text[0].lower()
+        rest = text[2:].replace("\\", "/").lstrip("/")
+        return f"/{drive}/{rest}"
+    return resolved.as_posix()
+
+
 def _worker_instruction(instruction: str, workspace: Path, problem_dir: Path, schema: Path) -> str:
+    workspace = workspace.resolve()
+    problem_dir = problem_dir.resolve()
+    schema = schema.resolve()
     return (
         f"{instruction}\n\n"
-        f"Workspace/output directory: {workspace}\n"
-        f"Problem directory: {problem_dir}\n"
-        f"Submission schema: {schema}\n"
-        "Write code under code/, intermediate outputs under results/, logs under logs/. "
-        "The final report must be results/solution_report.md."
+        "Path rules:\n"
+        f"- Workspace/output directory (absolute Windows path): {workspace}\n"
+        f"- Workspace/output directory (Git Bash path): {_bash_path(workspace)}\n"
+        f"- Problem directory (absolute Windows path): {problem_dir}\n"
+        f"- Submission schema (absolute Windows path): {schema}\n"
+        "Use the workspace path above exactly; do not prepend the current working directory to it. "
+        "The command working directory is already the workspace/output directory. "
+        "Write code under code/ or <workspace>/code, intermediate outputs under results/ or <workspace>/results, "
+        "and logs under logs/ or <workspace>/logs. "
+        "The final report must be <workspace>/results/solution_report.md."
     )
 
 
@@ -494,11 +717,51 @@ def _format_worker_observation(result: Dict[str, Any], workspace: Path) -> str:
     from uno_orchestor.agents.subagent import SubAgent
 
     snapshot = _workspace_snapshot(workspace)
+    status = str(result.get("status") or "unknown")
+    issues = result.get("issues") or []
+    completed = result.get("completed") or []
+    if status == "done" and snapshot.get("solution_report_exists"):
+        next_action = "The final report exists. If it is complete, call submit with results/solution_report.md."
+    elif issues:
+        next_action = (
+            "Continue from the existing workspace. Do not repeat completed work. "
+            "The next delegate_task should directly resolve these unresolved issues: "
+            + json.dumps(issues, ensure_ascii=False)
+        )
+    elif completed:
+        next_action = (
+            "Continue from the existing workspace. Do not repeat completed work. "
+            "Delegate the next missing modeling, computation, validation, or report-writing step."
+        )
+    else:
+        next_action = (
+            "Use the workspace snapshot and worker message to choose the next concrete step. "
+            "Do not restart unless required files are missing."
+        )
+    completed_guard = (
+        "Do not ask for already completed work again. Reuse existing files and "
+        "workspace state. If discovery/reading is listed as completed, the next "
+        "task must be modeling, computation, validation, report writing, or a "
+        "specific fix for an issue."
+    )
     return "\n".join([
-        SubAgent.format_result_for_planner(result),
+        "Planner next-action guidance:",
+        next_action,
+        "",
+        "Completed work that must not be repeated:",
+        json.dumps(completed, ensure_ascii=False, indent=2),
+        "",
+        "Unresolved issues to address next:",
+        json.dumps(issues, ensure_ascii=False, indent=2),
+        "",
+        "Anti-repeat rule:",
+        completed_guard,
         "",
         "Workspace snapshot:",
         json.dumps(snapshot, ensure_ascii=False, indent=2),
+        "",
+        "Raw worker summary:",
+        SubAgent.format_result_for_planner(result),
     ])
 
 
@@ -534,6 +797,18 @@ def _submission_observation(workspace: Path, report_path: str) -> str:
 def _write_json(path: Path, payload: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _write_live_trace(path: Path, payload: Dict[str, Any]) -> None:
+    payload["updated_at"] = _now_iso()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp_path.replace(path)
+
+
+def _json_clone(value: Any) -> Any:
+    return json.loads(json.dumps(value, ensure_ascii=False, default=str))
 
 
 def _split_env(name: str) -> List[str]:
