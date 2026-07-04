@@ -61,6 +61,7 @@ ORIGINAL_UNO_POOLS_PATH="${UNO_POOLS_PATH:-${PROJECT_DIR}/configs/pools.deepseek
 RUN_ID="${RUN_ID:-}"
 OUT_DIR="${OUT_DIR:-${EVAL_OUT}/${RUN_NAME}${RUN_ID:+_${RUN_ID}}}"
 TBENCH_PRUNE_STALE_NETWORKS="${TBENCH_PRUNE_STALE_NETWORKS:-1}"
+TBENCH_PRUNE_STALE_CONTAINERS="${TBENCH_PRUNE_STALE_CONTAINERS:-1}"
 
 mkdir -p "${OUT_DIR}"
 
@@ -141,10 +142,20 @@ if [[ "${TBENCH_PRUNE_STALE_NETWORKS}" != "0" ]]; then
     {
         echo "Pruning stale Terminal-Bench docker networks before run..."
         if command -v docker >/dev/null 2>&1; then
-            docker network ls --format '{{.ID}} {{.Name}}' \
-                | awk '$2 ~ /^tbench-/ {print $1}' \
-                | while read -r network_id; do
-                    [[ -n "${network_id}" ]] && docker network rm "${network_id}" || true
+            docker network ls --format '{{.ID}} {{.Name}}' 2>/dev/null \
+                | awk '$2 ~ /^tbench-/ {print $1, $2}' \
+                | while read -r network_id network_name; do
+                    [[ -z "${network_id}" ]] && continue
+                    if [[ "${TBENCH_PRUNE_STALE_CONTAINERS}" != "0" ]]; then
+                        docker network inspect "${network_id}" \
+                            --format '{{range $id, $container := .Containers}}{{printf "%s %s\n" $id $container.Name}}{{end}}' 2>/dev/null \
+                            | awk '$2 ~ /^tbench-/ {print $1}' \
+                            | while read -r container_id; do
+                                [[ -n "${container_id}" ]] && docker rm -f "${container_id}" || true
+                            done || true
+                    fi
+                    docker network rm "${network_id}" >/dev/null 2>&1 \
+                        || echo "Warning: could not remove stale network ${network_name} (${network_id}); it may still have active non-tbench endpoints."
                 done
         else
             echo "docker command not found; skip network pruning"
@@ -184,6 +195,7 @@ fi
     echo "TERMINALBENCH_PROMPT_DUMP_DIR:${TERMINALBENCH_PROMPT_DUMP_DIR}"
     echo "TERMINALBENCH_PROMPT_DUMP_TASK_LIMIT:${TERMINALBENCH_PROMPT_DUMP_TASK_LIMIT}"
     echo "TBENCH_PRUNE_STALE_NETWORKS:${TBENCH_PRUNE_STALE_NETWORKS}"
+    echo "TBENCH_PRUNE_STALE_CONTAINERS:${TBENCH_PRUNE_STALE_CONTAINERS}"
     echo "========================================"
 } >> "${LOG_FILE}"
 
