@@ -68,3 +68,4 @@
 *.swo
 __pycache__/
 *.zip
+!*.json

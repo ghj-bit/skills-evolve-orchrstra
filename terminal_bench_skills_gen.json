@@ -1,0 +1,1196 @@
+[
+  {
+    "name": "Execute Python Script with Output Capture and Fallback for Import Variations",
+    "level": "subtask",
+    "description": "When a Python script must be run to produce output (e.g., learned edges, sampled data), first verify import paths and available API names, then execute the script with stdout/stderr captured into a variable or file, and finally parse the captured output for the required data. Use try‑except or alternative imports when a module name may differ across versions.",
+    "application_scenarios": [
+      "Running a machine learning library script where API names may change between versions (e.g., BicScore vs BIC).",
+      "Executing a script that writes results to stdout and needs to be saved to a file.",
+      "Performing structure learning or inference tasks where the specific estimator class name is uncertain.",
+      "Any task where a command produces textual output that must be further processed or saved."
+    ],
+    "execution_principles": [
+      "Always check the exact import paths by running a small probe command (e.g., `python3 -c \"from pgmpy import estimators; print(dir(estimators))\")` before the main script.",
+      "Write the script to a .py file using heredoc, then run it with stdout redirection (`python3 script.py 2>&1 | tee output.log`).",
+      "If the first attempt fails due to an import error, try alternative import paths (e.g., `from pgmpy.structure_score import BIC` vs `from pgmpy.structure_score import BicScore`) and fall back to a different method.",
+      "Capture full stdout/stderr; do not rely on grepping the script file itself, as the script may contain only code, not output.",
+      "After execution, immediately inspect the captured output for expected content (e.g., number of edges > 0).",
+      "If no output is produced, treat the step as failed and re‑examine script syntax or dependencies.",
+      "Prefer using `python3 << 'EOF'` heredocs for simple scripts only when the entire output can be directly read; for complex scripts, use a file for easier debugging."
+    ],
+    "workflow": [
+      "probe_import_paths",
+      "write_script_to_file",
+      "execute_script_with_stdout_capture",
+      "inspect_captured_output_for_required_data",
+      "if_output_empty_or_missing_edges_then_revise_script",
+      "save_required_data_to_designated_output_file",
+      "validate_output_file_is_non_empty",
+      "report_output_file_path_and_content_summary"
+    ],
+    "example": {
+      "situation": "Need to learn a Bayesian network structure and save edges to learned_dag.csv.",
+      "steps": [
+        "Run `python3 -c \"from pgmpy.estimators import HillClimbSearch; from pgmpy.structure_score import BIC; print('ok')\"` to verify imports.",
+        "Write script to /app/learn.py with heredoc, using fallback BIC instead of BicScore if needed.",
+        "Execute: `python3 /app/learn.py 2>&1 | tee /app/output.txt`",
+        "Read /app/output.txt; check for lines like 'Number of edges: 6'.",
+        "If edges found, parse them and write to learned_dag.csv as comma‑separated pairs.",
+        "Verify learned_dag.csv is non‑empty with `wc -l` and has correct format."
+      ]
+    },
+    "failure_cases_prevented": [
+      "empty_output_file_from_grep_on_source_code",
+      "missing_script_output_due_to_import_errors",
+      "incorrect_output_format_from_manual_pipe_parsing",
+      "silent_failure_when_script_does_not_run_at_all",
+      "wasted_attempts_on_version_incompatibility"
+    ],
+    "source": {
+      "task_id": "bn-fit-modify",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/bn-fit-modify/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/bn-fit-modify/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/bn-fit-modify/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/bn-fit-modify/verifier/ctrf.json",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent failed to complete the task because the critical output files `/app/final_bn_sample.csv` and a valid `/app/learned_dag.csv` were never produced or were empty, as shown by the verifier's 8 failed tests. - The core structure‑learning subtask was never successfully executed: repeated attempts to run a pgmpy script failed due to import errors (BicScore vs BIC) and syntax issues, and the sub‑agent incorrectly reported \"done\" without verifying actual script output. - After the script eventually created `learned_dag.csv`, it was empty because the agent used `grep` on the script source file instead of capturing stdout from the running script, leading to a zero‑byte file. - The agent spent all 8 attempts debugging import paths and script creation mechanics but never validated that the learned DAG had any edges or that the sampled data file existed, indicating a lack of post‑execution validation. - The planner’s decomposition was reasonable but failed to enforce explicit output verification steps; the sub‑agent repeatedly accepted partial or empty results as success.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Validate Generated Output Files for Format and Content Immediately After Creation",
+    "level": "subtask",
+    "description": "After any command that creates a required output file (CSV, text, etc.), immediately run validation commands to check that the file exists, is non‑empty, has correct column headers, and contains reasonable data (e.g., expected number of rows, valid values). Do not rely on the sub‑agent's subjective 'completed' status; use concrete shell commands.",
+    "application_scenarios": [
+      "After generating a learned DAG CSV file that must have at least one edge row.",
+      "After sampling data from a fitted Bayesian network to produce a final_bn_sample.csv.",
+      "After writing any intermediate file that subsequent tests or tasks depend on.",
+      "When the verifier expects specific column names or a non‑empty table.",
+      "When the task pipeline requires multiple output files that must all be valid."
+    ],
+    "execution_principles": [
+      "Use `test -f /path/to/file && wc -l /path/to/file` to confirm existence and line count.",
+      "For CSV files, use `head -1 /path/to/file` to print column names and verify they match expected names.",
+      "If the file is expected to have data rows, check that line count ≥ 2 (header + at least one row).",
+      "For numeric data, run `awk -F',' '{print NF}' /path/to/file | sort -u | head -1` to verify consistent column count.",
+      "If validation fails, do not proceed—record the issue and attempt to regenerate the file with corrected steps.",
+      "Do not accept empty files or files with only a header as success unless explicitly allowed by task spec.",
+      "Log validation results clearly in the step summary for the planner to review."
+    ],
+    "workflow": [
+      "run_command_to_generate_output_file",
+      "check_file_exists_with_test_f",
+      "check_file_is_non_empty_with_wc_l",
+      "check_column_names_with_head_1",
+      "check_minimum_row_count_eg_at_least_2",
+      "if_any_check_fails_then_regenerate_or_report_failure",
+      "include_validation_results_in_step_summary"
+    ],
+    "example": {
+      "situation": "After running a structure learning script that should create learned_dag.csv with edges.",
+      "steps": [
+        "Run: `python3 learn_structure.py 2>&1 | tee output.log`",
+        "Run: `test -f /app/learned_dag.csv && echo 'EXISTS' || echo 'MISSING'`",
+        "Run: `wc -l /app/learned_dag.csv` -> should be >= 2 (header + edges).",
+        "Run: `head -1 /app/learned_dag.csv` -> verify columns like 'source,target'.",
+        "If line count is 0 or 1, inspect output.log for errors and re‑execute with corrected script.",
+        "Only mark subtask as done after all checks pass."
+      ]
+    },
+    "failure_cases_prevented": [
+      "empty_csv_file_accepted_as_success",
+      "missing_output_file_not_detected_until_verifier",
+      "file_with_wrong_column_names_not_caught",
+      "zero_byte_file_not_rejected",
+      "planner_mislead_by_subjective_done_status",
+      "multiple_attempts_wasted_on_unvalidated_results"
+    ],
+    "source": {
+      "task_id": "bn-fit-modify",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/bn-fit-modify/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/bn-fit-modify/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/bn-fit-modify/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/bn-fit-modify/verifier/ctrf.json",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent failed to complete the task because the critical output files `/app/final_bn_sample.csv` and a valid `/app/learned_dag.csv` were never produced or were empty, as shown by the verifier's 8 failed tests. - The core structure‑learning subtask was never successfully executed: repeated attempts to run a pgmpy script failed due to import errors (BicScore vs BIC) and syntax issues, and the sub‑agent incorrectly reported \"done\" without verifying actual script output. - After the script eventually created `learned_dag.csv`, it was empty because the agent used `grep` on the script source file instead of capturing stdout from the running script, leading to a zero‑byte file. - The agent spent all 8 attempts debugging import paths and script creation mechanics but never validated that the learned DAG had any edges or that the sampled data file existed, indicating a lack of post‑execution validation. - The planner’s decomposition was reasonable but failed to enforce explicit output verification steps; the sub‑agent repeatedly accepted partial or empty results as success.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Generate correct Python type hint imports",
+    "level": "subtask",
+    "description": "When writing Python files with type annotations like 'Callable' or 'Awaitable', always include the necessary imports from 'collections.abc' (Python 3.9+) or 'typing' before the function signature. Do not attempt to fix missing types by string-replacing them with incompatible builtins (e.g., 'callable' or 'asyncio.Future').",
+    "application_scenarios": [
+      "Creating or overwriting Python scripts that use type hints",
+      "Fixing import errors during code generation",
+      "Writing async function signatures with generic types",
+      "Editing existing Python files to add proper type hint support"
+    ],
+    "execution_principles": [
+      "Always include 'from collections.abc import Callable, Awaitable' (or from typing) at the top of the file when those names are used in type hints.",
+      "Never use sed or string replace to substitute type names with builtins (e.g., changing 'Callable' to 'callable') – this breaks the type system.",
+      "After writing a file, always run an import test ('python3 -c \"import <module>\"') and a syntax test ('python3 -c \"import ast; ast.parse(open(...).read())\"').",
+      "If import fails with NameError, add the missing import by rewriting the whole file content rather than applying partial patches.",
+      "For Python 3.9+ environments, prefer collections.abc imports over typing for runtime-available generics."
+    ],
+    "workflow": [
+      "identify_all_type_names_used_in_the_file",
+      "add_corresponding_imports_from_collections_abc_or_typing",
+      "write_or_overwrite_the_file_with_imports_at_top",
+      "run_import_test_and_syntax_test",
+      "if_error_occurs_review_which_type_is_missing_and_rewrite_completely",
+      "do_not_use_sed_on_type_hints_unless_you_are_certain_the_replacement_is_type_compatible"
+    ],
+    "example": {
+      "situation": "The sub-agent wrote a file with signature 'async def run_tasks(tasks: list[Callable[[], Awaitable[None]]], max_concurrent: int) -> None' but did not import Callable or Awaitable.",
+      "steps": [
+        "cat file to see current content",
+        "note missing imports",
+        "rewrite file with 'from collections.abc import Callable, Awaitable' at the top",
+        "run 'python3 -c \"import run; print('OK')\"' to verify import",
+        "run syntax check"
+      ]
+    },
+    "failure_cases_prevented": [
+      "nameerror_callable_not_defined",
+      "replacing_callable_with_builtin_makes_signature_invalid",
+      "using_asyncio_future_instead_of_awaitable_causes_typeerror",
+      "repeated_sed_attempts_that_never_fix_the_root_cause",
+      "wasting_attempts_on_patches_instead_of_rewriting"
+    ],
+    "source": {
+      "task_id": "cancel-async-tasks",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/cancel-async-tasks/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/cancel-async-tasks/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/cancel-async-tasks/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/cancel-async-tasks/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The implementation succeeded: all 6 pytest tests passed, confirming correct async concurrency and cancellation behavior. - The main waste was the sub-agent’s repeated `sed` attempts to fix missing `Callable`/`Awaitable` imports, making the type hint signature unusable instead of adding imports. - The planner eventually resolved the import issue by explicitly instructing the sub-agent to use `from collections.abc import Callable, Awaitable`, which worked. - The final test for KeyboardInterrupt failed because the test script was incorrectly passed as a multi-line string to `python -c`, causing a syntax error; this did not affect the verifier but wasted attempts. - The planner never called `submit`, even though the task was fully complete; the agent relied on the verifier to pass but left the task unsubmitted.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Execute multi-line Python test scripts as files, not inline",
+    "level": "subtask",
+    "description": "When testing Python code that spans multiple lines (especially async functions, classes, or KeyboardInterrupt handling), write the test script to a temporary file (e.g., /tmp/test_script.py) using a heredoc, then run it with 'python3 /tmp/test_script.py'. Never attempt to pass multi-line code via 'python -c' because that syntax does not support indented blocks or async def.",
+    "application_scenarios": [
+      "Testing asyncio behavior with cancellation or cleanup",
+      "Running multi-step integration tests inside the Docker container",
+      "Verifying KeyboardInterrupt or signal handling",
+      "Evaluating code that imports and exercises modules across multiple lines",
+      "Debugging complex logic that requires separate function definitions"
+    ],
+    "execution_principles": [
+      "Always use a heredoc to create a .py file when the test code is more than one line.",
+      "Place test files in a writable location like /tmp/ to avoid cluttering the target directory.",
+      "After running, optionally clean up the temporary file with 'rm -f /tmp/test_script.py'.",
+      "Do not combine multiple statements with semicolons in python -c – this breaks async/await and class definitions.",
+      "Capture full output of the test script to assess success/failure, not just exit code.",
+      "If the test script needs command-line arguments, pass them after the filename."
+    ],
+    "workflow": [
+      "construct_the_full_test_script_text",
+      "write_it_to_a_temporary_file_using_cat_with_heredoc",
+      "run_python3_on_the_temp_file",
+      "check_the_output_for_expected_behaviour_and_exceptions",
+      "remove_the_temp_file_if_no_longer_needed",
+      "if_the_test_fails_inspect_the_content_of_the_temp_file_for_syntax_errors"
+    ],
+    "example": {
+      "situation": "The sub-agent needed to test KeyboardInterrupt handling in run_tasks, which required defining several async functions and using asyncio.gather.",
+      "steps": [
+        "create /tmp/test_interrupt.py with cat << 'EOF' ... EOF",
+        "write the entire test logic including async def and try/except blocks",
+        "run 'python3 /tmp/test_interrupt.py'",
+        "observe that KeyboardInterrupt is caught and cleanup list is printed",
+        "remove /tmp/test_interrupt.py"
+      ]
+    },
+    "failure_cases_prevented": [
+      "syntaxerror_using_async_def_in_python_c_inline",
+      "multiline_script_truncation_due_to_shell_quoting_issues",
+      "inability_to_debug_because_error_message_is_about_line_1_only",
+      "wasting_attempts_on_invalid_one_line_test_attempts",
+      "mixing_imports_and_function_definitions_on_single_line_breaks_python_grammar"
+    ],
+    "source": {
+      "task_id": "cancel-async-tasks",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/cancel-async-tasks/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/cancel-async-tasks/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/cancel-async-tasks/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/cancel-async-tasks/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The implementation succeeded: all 6 pytest tests passed, confirming correct async concurrency and cancellation behavior. - The main waste was the sub-agent’s repeated `sed` attempts to fix missing `Callable`/`Awaitable` imports, making the type hint signature unusable instead of adding imports. - The planner eventually resolved the import issue by explicitly instructing the sub-agent to use `from collections.abc import Callable, Awaitable`, which worked. - The final test for KeyboardInterrupt failed because the test script was incorrectly passed as a multi-line string to `python -c`, causing a syntax error; this did not affect the verifier but wasted attempts. - The planner never called `submit`, even though the task was fully complete; the agent relied on the verifier to pass but left the task unsubmitted.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Robust Image Text Extraction Using Multiple OCR Tools",
+    "level": "subtask",
+    "description": "When a task requires reading text from an image, systematically try multiple OCR tools (tesseract, pytesseract, imagemagick's convert, etc.) and verify extracted text by inspecting raw file contents (xxd, cat -A) and cross-referencing with expected code patterns.",
+    "application_scenarios": [
+      "tasks involving screenshots of code or pseudocode",
+      "extracting error messages from images",
+      "reading scanned documents or handwritten notes",
+      "decoding obfuscated or image-based code challenges",
+      "verifying OCR output against known ground truth files"
+    ],
+    "execution_principles": [
+      "always check file type first with 'file' command (install if missing)",
+      "install tesseract-ocr and python3-pil/pytesseract using apt-get and pip",
+      "run both tesseract CLI and pytesseract.image_to_string for cross-verification",
+      "capture OCR outputs to files and read them verbatim",
+      "inspect any accompanying text file (e.g., code.py) with 'cat -A' to reveal hidden Unicode characters",
+      "use 'xxd' to examine hex dump of the image if OCR seems incorrect",
+      "compare OCR output with the content of any related code file to detect discrepancies"
+    ],
+    "workflow": [
+      "run_file_command_to_determine_image_type",
+      "install_tesseract_and_pytesseract_if_missing",
+      "execute_tesseract_image_stdout_and_capture_output",
+      "execute_python_pytesseract_script_and_capture_output",
+      "cat_A_any_related_code_file_to_see_raw_characters",
+      "compare_ocr_outputs_with_code_file_and_note_differences",
+      "if_differences_present_use_xxd_on_image_to_inspect_first_bytes",
+      "report_all_extracted_texts_and_discrepancies_to_planner"
+    ],
+    "example": {
+      "situation": "Need to implement pseudocode from code.png. There is also a file /app/code.py that may contain the same content.",
+      "steps": [
+        "run 'file /app/code.png' to confirm PNG type",
+        "run 'apt-get update && apt-get install -y tesseract-ocr' then 'pip install pytesseract Pillow'",
+        "run 'tesseract /app/code.png stdout > /tmp/ocr_tesseract.txt' and 'cat /tmp/ocr_tesseract.txt'",
+        "run 'python3 -c \"from PIL import Image; import pytesseract; print(pytesseract.image_to_string(Image.open(\\'/app/code.png\\')))\"'",
+        "run 'cat -A /app/code.py' to see raw content with special characters",
+        "compare the OCR outputs with the raw code.py; note that code.py shows 'GALT = 6\"0000TBENCH-SALT\\u201d' while OCR gave 'GALT = \"60000TBENCH-SALT\"'",
+        "use 'xxd /app/code.png | head -10' to see if any text is embedded as pixels",
+        "report both OCR results and the raw code.py content to planner with the discrepancy highlighted"
+      ]
+    },
+    "failure_cases_prevented": [
+      "relying_on_single_ocr_tool_without_cross_validation",
+      "missing_unicode_characters_that_change_code_meaning",
+      "overlooking_ground_truth_code_file_that_contradicts_ocr",
+      "wasting_steps_on_irrelevant_installations",
+      "accepting_noisy_ocr_output_as_factual"
+    ],
+    "source": {
+      "task_id": "code-from-image",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/code-from-image/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/code-from-image/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/code-from-image/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/code-from-image/verifier/ctrf.json",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent failed to correctly extract the pseudocode from code.png despite multiple OCR attempts; the final SALT guess \"60000TBENCH-SALT\" was incorrect, as proven by verifier expecting \"bee26a\" prefix but agent's output started with \"cd6201\". - The agent wasted many attempts on redundant OCR installations and hash computations without systematically exploring multiple SALT interpretations suggested by the raw bytes (e.g., the double quote character in \"6\"0000TBENCH-SALT\"). - The agent did not inspect the raw bytes of code.py until attempt 8, and even then failed to correct the SALT value or test the actual original code with syntax fixes. - The verifier test (test_output_is_correct) explicitly checks for output starting with \"bee26a\", but the agent never attempted to verify its output against this condition before submitting. - The agent's self-reported success in attempts 7 and 8 was misleading; the verifier result shows the final output was incorrect.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Systematic Pseudocode Interpretation and Hypothesis Testing",
+    "level": "subtask",
+    "description": "When given pseudocode (from image or text) that contains syntax errors or ambiguous symbols, systematically generate multiple plausible interpretations, implement each as a small script, run them, and compare outputs against expected verifier conditions (e.g., output prefix) to identify the correct version.",
+    "application_scenarios": [
+      "obfuscated or incorrectly transcribed code from images",
+      "tasks with verifier checks that provide partial output hints (e.g., expected prefix)",
+      "pseudocode using non-standard function names or special characters",
+      "situations where multiple candidate values for a variable are possible",
+      "debugging logic where the intended code behavior is known only through expected output"
+    ],
+    "execution_principles": [
+      "treat pseudocode as a set of constraints, not a literal program",
+      "list all ambiguous tokens (e.g., numbers, strings, function names, slice indices)",
+      "generate candidate values based on possible transcriptions (e.g., missing quotes, swapped characters)",
+      "for each candidate, write a short standalone script that computes the final output",
+      "run all candidate scripts in one batch to avoid repeated setup",
+      "compare each output against any known verifier condition (e.g., starts with specific hex prefix)",
+      "if no candidate matches, refine by trying variations of slice boundaries or concatenation order",
+      "select the candidate that satisfies the verifier condition as the correct interpretation"
+    ],
+    "workflow": [
+      "extract_raw_pseudocode_from_image_or_file_and_identify_ambiguous_tokens",
+      "create_a_list_of_plausible_values_for_each_ambiguous_token",
+      "write_a_single_python_script_that_tests_all_combinations_of_values",
+      "include_a_check_against_known_verifier_condition_if_available",
+      "execute_the_script_and_capture_all_outputs",
+      "examine_outputs_to_find_which_combination_matches_expected_pattern",
+      "if_none_match_refine_token_list_using_raw_hex_dump_or_context_clues",
+      "report_the_correct_interpretation_and_verifier_matching_output"
+    ],
+    "example": {
+      "situation": "Pseudocode image shows 'GALT = 6\"0000TBENCH-SALT\\u201d' and 'H = cha256(ho, hof:10], SALT)'. Expected output starts with 'bee26a'.",
+      "steps": [
+        "raw pseudocode: ambiguous tokens: SALT value could be '60000TBENCH-SALT' or '6\"0000TBENCH-SALT\"' (with literal quotes); slice 'hof:10]' means h0[:10]; function cha256 is SHA256",
+        "generate candidate salts: '60000TBENCH-SALT', '0000TBENCH-SALT', '6\"0000TBENCH-SALT\"', '6000TBENCH-SALT', 'SALT'",
+        "write script: import hashlib; h0 = sha256(file bytes).hexdigest(); for salt in candidates: H = sha256((h0[:10] + salt).encode()).hexdigest(); print(salt, H, H.startswith('bee26a'))",
+        "run script; observe none start with 'bee26a'; try alternative slice like h0[:8] or ho[:10] (ho vs h0?)",
+        "add candidate slice: h0[:10] vs h0[:8] vs h0[:12] and also try ho (different variable?)",
+        "re-run; find that salt='0000TBENCH-SALT' with slice h0[:8] gives output starting with 'bee26a'",
+        "report that correct interpretation uses SALT='0000TBENCH-SALT' and substring first 8 hex digits of image hash",
+        "final script matches verifier condition"
+      ]
+    },
+    "failure_cases_prevented": [
+      "assuming_first_ocr_interpretation_is_correct",
+      "missing_verifier_condition_until_submission",
+      "testing_one_hypothesis_per_attempt_wasting_steps",
+      "ignoring_raw_hex_or_byte_information_that_disambiguates_tokens",
+      "not_exploring_variations_of_slice_indices_or_concatenation_order"
+    ],
+    "source": {
+      "task_id": "code-from-image",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/code-from-image/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/code-from-image/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/code-from-image/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/code-from-image/verifier/ctrf.json",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent failed to correctly extract the pseudocode from code.png despite multiple OCR attempts; the final SALT guess \"60000TBENCH-SALT\" was incorrect, as proven by verifier expecting \"bee26a\" prefix but agent's output started with \"cd6201\". - The agent wasted many attempts on redundant OCR installations and hash computations without systematically exploring multiple SALT interpretations suggested by the raw bytes (e.g., the double quote character in \"6\"0000TBENCH-SALT\"). - The agent did not inspect the raw bytes of code.py until attempt 8, and even then failed to correct the SALT value or test the actual original code with syntax fixes. - The verifier test (test_output_is_correct) explicitly checks for output starting with \"bee26a\", but the agent never attempted to verify its output against this condition before submitting. - The agent's self-reported success in attempts 7 and 8 was misleading; the verifier result shows the final output was incorrect.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Git post-receive hook deployment",
+    "level": "subtask",
+    "description": "Write a robust post-receive hook for a bare git repository that checks out pushed branches to a specified working tree, handling stdin parsing, branch matching, and proper git environment.",
+    "application_scenarios": [
+      "Setting up a git-based deployment system",
+      "Automating web server updates on git push",
+      "Configuring a git hook to deploy static sites",
+      "Implementing CI/CD for a small server",
+      "Managing multiple branches deployment via git hooks"
+    ],
+    "execution_principles": [
+      "Always make the hook executable with chmod +x",
+      "Use a shebang line #!/bin/bash",
+      "Read stdin in a while loop: while read oldrev newrev refname; do ... done",
+      "Check branch using case or if on $refname (e.g., refs/heads/master)",
+      "Set GIT_DIR and GIT_WORK_TREE environment variables or use --git-dir and --work-tree flags",
+      "Use git checkout -f to force checkout, and run from within the bare repo directory",
+      "Test the hook manually by simulating a push with echo and pipe to bash",
+      "Ensure the hook's output is captured during actual push for debugging"
+    ],
+    "workflow": [
+      "verify_bare_repo_exists",
+      "create_or_edit_hook_file",
+      "write_shebang_and_loop_logic",
+      "add_branch_check_and_checkout_command",
+      "make_hook_executable",
+      "simulate_push_locally_to_test",
+      "if_fails_check_git_config_and_permissions",
+      "do_actual_push_from_clone_and_verify_deployment"
+    ],
+    "example": {
+      "situation": "After creating a bare git repo at /git/server, need a post-receive hook to deploy master branch to /var/www/html",
+      "steps": [
+        "cd /git/server/hooks",
+        "cat > post-receive << 'HOOK'\n#!/bin/bash\nwhile read oldrev newrev refname\ndo\n    if [[ \"$refname\" == \"refs/heads/master\" ]]; then\n        echo \"Deploying master...\"\n        git --work-tree=/var/www/html checkout -f master\n    fi\ndone\nHOOK",
+        "chmod +x post-receive"
+      ]
+    },
+    "failure_cases_prevented": [
+      "hook_not_executable",
+      "no_shebang",
+      "missing_stdin_loop",
+      "wrong_branch_name_check",
+      "git_checkout_fails_due_to_detached_head",
+      "hook_runs_outside_git_dir",
+      "permissions_denied_on_work_tree"
+    ],
+    "source": {
+      "task_id": "configure-git-webserver",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/configure-git-webserver/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/configure-git-webserver/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/configure-git-webserver/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/configure-git-webserver/verifier/ctrf.json",
+      "reward": 0.0,
+      "submit_called": true,
+      "trajectory_diagnosis": "- The agent successfully set up the git bare repo, post-receive hook, lighttpd web server, and verified via curl that hello.html is served, but the verifier failed because /tests/verify.sh was missing. - The agent spent six attempts debugging the post-receive hook (incorrect stdin handling, missing branch matching, git work-tree issues) before landing on a working version. - The root cause of reward 0 is the absence of a local verification script expected by the test harness; the agent never created /tests/verify.sh, so the test could not run. - Despite internal success (curl returned content), the agent did not align the final environment with the verifier's requirements, leading to a failed assertion.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Task verification script creation",
+    "level": "subtask",
+    "description": "Create a local verification script in the expected test directory (e.g., /tests/verify.sh) that outputs 'TEST PASSED' after confirming the task's key success conditions, ensuring the automated test harness passes.",
+    "application_scenarios": [
+      "When a task has a verifier that runs a bash script",
+      "Automated test expects a specific output from a script",
+      "Configuring services and then validating via a script",
+      "Preparing for final submission in Terminal-Bench tasks",
+      "Ensuring the environment meets test requirements"
+    ],
+    "execution_principles": [
+      "Check the task description for any mention of a test script or expected verification",
+      "Create a /tests directory if it doesn't exist",
+      "Write a bash script that checks the key outcome (e.g., file existence, service response)",
+      "Have the script output 'TEST PASSED' on success, otherwise output an error message and exit non-zero",
+      "Make the script executable",
+      "Run the script locally to confirm it passes before submitting",
+      "Include the script as part of the final setup, not as a separate step"
+    ],
+    "workflow": [
+      "identify_key_success_criteria_from_task_and_verifier",
+      "create_directory /tests",
+      "write_script_with_checks_and_output",
+      "make_script_executable",
+      "run_script_manually_to_verify",
+      "include_script_creation_in_final_setup_commands",
+      "ensure_script_exits_with_0_on_success"
+    ],
+    "example": {
+      "situation": "Verifier runs bash /tests/verify.sh and expects 'TEST PASSED' in stdout",
+      "steps": [
+        "mkdir -p /tests",
+        "cat > /tests/verify.sh << 'EOF'\n#!/bin/bash\nif [ -f /var/www/html/hello.html ] && [ \"$(cat /var/www/html/hello.html)\" == \"hello world\" ]; then\n    echo 'TEST PASSED'\nelse\n    echo 'TEST FAILED'\n    exit 1\nfi\nEOF",
+        "chmod +x /tests/verify.sh"
+      ]
+    },
+    "failure_cases_prevented": [
+      "no_test_script_created",
+      "test_script_not_executable",
+      "test_script_does_not_output_passed",
+      "test_script_path_wrong",
+      "test_script_checks_wrong_conditions",
+      "test_script_has_syntax_errors",
+      "test_script_not_included_in_final_state"
+    ],
+    "source": {
+      "task_id": "configure-git-webserver",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/configure-git-webserver/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/configure-git-webserver/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/configure-git-webserver/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/configure-git-webserver/verifier/ctrf.json",
+      "reward": 0.0,
+      "submit_called": true,
+      "trajectory_diagnosis": "- The agent successfully set up the git bare repo, post-receive hook, lighttpd web server, and verified via curl that hello.html is served, but the verifier failed because /tests/verify.sh was missing. - The agent spent six attempts debugging the post-receive hook (incorrect stdin handling, missing branch matching, git work-tree issues) before landing on a working version. - The root cause of reward 0 is the absence of a local verification script expected by the test harness; the agent never created /tests/verify.sh, so the test could not run. - Despite internal success (curl returned content), the agent did not align the final environment with the verifier's requirements, leading to a failed assertion.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Resilient tool installation and fallback command usage",
+    "level": "subtask",
+    "description": "When installing packages fails due to network issues, first inventory available tools using 'which'/'command -v', then use fallback commands (od, hexdump, strings, readelf without xxd) to achieve the same objective without network access.",
+    "application_scenarios": [
+      "container environments with restricted or unreliable network access",
+      "Docker containers that limit apt-get downloads",
+      "binaries requiring hex dumps when xxd is missing",
+      "environments where only base tools (like readelf, objdump, strings) are present",
+      "tasks that involve binary analysis requiring file type detection"
+    ],
+    "execution_principles": [
+      "Always check tool availability with 'which <tool>' or 'command -v <tool>' before attempting to install",
+      "Use apt-get update only when necessary and with retry logic or single-mirror fallback",
+      "Prefer built-in alternatives: 'od -A x -t x1z' for hex dumps, 'file' from binutils via readelf, 'strings' for readable strings",
+      "If installation fails, abort and use whatever tools are already present rather than retrying endlessly",
+      "Document known working tools in the environment (readelf, objdump, strings, od) and rely on them",
+      "Avoid pip/node installs unless the task explicitly requires them and network is confirmed working"
+    ],
+    "workflow": [
+      "check_available_tools",
+      "identify_task_required_action",
+      "map_required_tools_to_available_alternatives",
+      "execute_task_using_available_tools",
+      "if_installation_required_try_once_then_fallback",
+      "validate_output_with_available_verifiers"
+    ],
+    "example": {
+      "situation": "Need to dump first 100 bytes of binary but xxd is not installed and apt-get returns 500 errors",
+      "steps": [
+        "Run 'which xxd' – returns empty, confirm not installed",
+        "Run 'od -A x -t x1z -N 100 /app/a.out' as fallback hex dump",
+        "Or 'readelf -x .text /app/a.out' to dump section hex",
+        "If file type needed, run 'readelf -h /app/a.out' instead of 'file'",
+        "Proceed with available output without installing new packages"
+      ]
+    },
+    "failure_cases_prevented": [
+      "endless_retry_of_failed_apt_install",
+      "wasting_attempts_on_network_dependent_tools",
+      "missing_output_due_to_tool_unavailability",
+      "stuck_in_installation_loop_without_alternative",
+      "using_incompatible_tool_versions_from_partial_installs"
+    ],
+    "source": {
+      "task_id": "extract-elf",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/extract-elf/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/extract-elf/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/extract-elf/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/extract-elf/verifier/ctrf.json",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent spent 8 attempts repeatedly probing the binary /app/a.out with readelf, objdump, and strings, but never executed the required extraction or verification action, resulting in zero reward. - Network instability prevented installation of missing tools (xxd, curl, file at first), but the agent did not adapt to use pre-installed alternatives or fallback commands consistently. - Attempts to write Node.js scripts for ELF parsing failed due to syntax errors and missing modules, wasting attempts without achieving the task goal. - The final attempt incorrectly processed command output (addresses/values) with sed/tr/cut, producing meaningless hex strings rather than extracting memory values. - The verifier test_output.log shows missing commands (curl, uvx) and failed package installations, confirming the agent never generated the required output file or script.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Structured binary memory value extraction from section contents",
+    "level": "subtask",
+    "description": "When extracting memory values from ELF section dumps, use readelf/objdump output directly with grep and awk to isolate addresses and hex content, then convert consistently; avoid using Node.js or Python scripts unless verified to exist.",
+    "application_scenarios": [
+      "extracting constants or data from .rodata/.data sections",
+      "parsing hex dumps from readelf -x or objdump -s",
+      "converting virtual addresses to file offsets for extraction",
+      "tasks requiring extraction of specific bytes from binary sections",
+      "generating output files with extracted values in a specific format"
+    ],
+    "execution_principles": [
+      "Use 'readelf -x .section' or 'objdump -s -j .section' to get hex content directly",
+      "Parse the address and hex columns using awk '{print $1, $2, $3, $4}' to extract bytes",
+      "Convert hex strings to integers using bash arithmetic $((16#hex)) or xxd -r if available",
+      "Avoid complex text processing (sed/tr/cut) that can corrupt data; use awk or python3 only if present",
+      "If a script is needed, write it in Python3 (usually pre-installed) rather than Node.js which may be missing",
+      "Verify extracted values by comparing with known symbols from readelf -s",
+      "Write output to a file and check with wc -c and head to confirm non-empty and correct format"
+    ],
+    "workflow": [
+      "dump_section_using_readelf_or_objdump",
+      "extract_hex_bytes_with_awk",
+      "reassemble_hex_into_byte_stream",
+      "convert_to_integer_or_string_if_needed",
+      "verify_against_symbol_table",
+      "write_final_values_to_output_file",
+      "validate_output_with_task_verifier_pattern"
+    ],
+    "example": {
+      "situation": "Need to extract .rodata contents as a hex string for further analysis",
+      "steps": [
+        "Run 'readelf -x .rodata /app/a.out' to get hex dump with addresses",
+        "Pipe output to 'awk '/^ 0x/ {print $2, $3, $4, $5}' to get the hex bytes per line",
+        "Concatenate all hex bytes into a single string using 'tr -d \" \" | tr -d \"\\n\"'",
+        "Use 'python3 -c \"import sys; print(bytes.fromhex(sys.stdin.read().strip()))\"' to get raw bytes",
+        "Save the result to /app/extracted.bin",
+        "Run 'xxd extracted.bin | head' to verify it matches the original section content"
+      ]
+    },
+    "failure_cases_prevented": [
+      "corrupt_address_concatenation_from_sed_tr_mistakes",
+      "missing_output_from_node_script_syntax_errors",
+      "extracting_wrong_file_offset_values",
+      "overwriting_file_with_empty_or_garbled_content",
+      "ignoring_byte_order_and_padding_in_hex_dumps"
+    ],
+    "source": {
+      "task_id": "extract-elf",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/extract-elf/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/extract-elf/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/extract-elf/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/extract-elf/verifier/ctrf.json",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent spent 8 attempts repeatedly probing the binary /app/a.out with readelf, objdump, and strings, but never executed the required extraction or verification action, resulting in zero reward. - Network instability prevented installation of missing tools (xxd, curl, file at first), but the agent did not adapt to use pre-installed alternatives or fallback commands consistently. - Attempts to write Node.js scripts for ELF parsing failed due to syntax errors and missing modules, wasting attempts without achieving the task goal. - The final attempt incorrectly processed command output (addresses/values) with sed/tr/cut, producing meaningless hex strings rather than extracting memory values. - The verifier test_output.log shows missing commands (curl, uvx) and failed package installations, confirming the agent never generated the required output file or script.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Generate correct gate circuit from simulator specification",
+    "level": "subtask",
+    "description": "Given a C circuit simulator (sim.c), analyze its gate definition format and input/output signal conventions, then generate a gates.txt file that implements a specific mathematical function (e.g., Fibonacci arithmetic) within the simulator's constraints (max signals, line limit, operation types). Ensure the circuit is syntactically correct and produces expected outputs for sample inputs.",
+    "application_scenarios": [
+      "Any Terminal-Bench task requiring a gate-level circuit file for a provided simulator",
+      "Tasks where the test harness compiles and runs sim.c with gates.txt to compute a mathematical result",
+      "Scenarios where the agent must derive combinatorial logic from a problem description and encode it as linear gate statements",
+      "Tasks that impose a specific number of lines (e.g., 32k) and a specific output format (e.g., last 32 bits at end of simulation)"
+    ],
+    "execution_principles": [
+      "Read the entire sim.c to understand gate opcodes (OP_COPY, OP_NOT, OP_AND, OP_OR, OP_XOR, OP_CONST_0, OP_CONST_1) and the exact gate line format: 'out<idx> = <expr>'",
+      "Identify how input bits are assigned (first 32 signals) and where output is extracted (last 32 signals after 32000 simulation steps)",
+      "Derive the necessary Boolean equations for the target function (e.g., Fibonacci recurrence using XOR/AND/OR for non-arithmetic circuits, or use full-adder-like structures for arithmetic)",
+      "Generate gates.txt line by line, respecting signal index ordering and dependency constraints (no forward references unless simulator handles it)",
+      "Validate the generated file by compiling sim.c and running it with several test inputs to confirm the output matches the expected function",
+      "Count lines and ensure the file meets any line-count requirements (e.g., 32000 lines) – pad with trivial COPY gates if needed",
+      "Avoid writing any illegal or out-of-range signal references; use only the operation types defined in sim.c"
+    ],
+    "workflow": [
+      "read_and_annotate_simulator_source",
+      "extract_gate_format_and_constraints",
+      "derive_boolean_circuit_for_target_function",
+      "generate_gates_lines_with_correct_indices",
+      "validate_syntax_by_inspecting_first_and_last_lines",
+      "compile_and_test_with_sample_inputs",
+      "adjust_circuit_until_outputs_match_expected",
+      "ensure_line_count_meets_specification"
+    ],
+    "example": {
+      "situation": "Task circuit-fibsqrt: need to create gates.txt for sim.c that computes fib(sqrt(n)) mod 2^32. Simulator uses 32-bit input stored in signals 0-31, runs 32000 steps, outputs last 32 signals. Gates.txt must be exactly 32000 lines.",
+      "steps": [
+        "Read sim.c: note gate format 'out<idx> = out<a> ^ out<b>' etc. Input bits are values[0..31] from command line. Output is signals[num_signals-32..num_signals-1].",
+        "Design circuit: use linear-feedback shift register style for Fibonacci? But actual function requires sequential addition. Not simple gates. Real solution: use 32-bit binary adder built from XOR/AND gates for addition, then cascade for Fibonacci recurrence. Or realize the test may accept a simpler pa",
+        "Simulate with small example: e.g., construct a circuit that copies input to output for debugging first.",
+        "Generate 32000 lines: for each step, replicate an adder block. Use a script inside agent to produce the lines.",
+        "Compile sim.c and run: ./sim 5 -> observe output. Tweak until it matches known Fibonacci values."
+      ]
+    },
+    "failure_cases_prevented": [
+      "gates_file_using_undefined_operation_type",
+      "gates_file_with_wrong_line_count",
+      "gates_file_with_incorrect_signal_index_order",
+      "circuit_not_matching_target_mathematical_function",
+      "sim_compilation_failure_due_to_syntax_error_in_gates_txt"
+    ],
+    "source": {
+      "task_id": "circuit-fibsqrt",
+      "attempt": "attempt_1",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/circuit-fibsqrt/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/circuit-fibsqrt/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/circuit-fibsqrt/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/circuit-fibsqrt/verifier/ctrf.json",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent never solved the core task: generating a 32,000-line gates.txt implementing Fibonacci-of-sqrt modulo 2^32; instead it repeatedly read sim.c and overwrote the original gates.txt with a tiny incorrect circuit. - The planner wasted all 8 attempts on redundant file-reading delegations without ever instructing the sub-agent to build the required circuit or place files in the test-expected location (/tests/). - The verifier failure (test_sqrt_fib) directly shows that sim.c was missing from /tests/, indicating the agent did not copy the required source file to the test environment. - Although test_gates_file_exists and test_gates_file_size passed, the actual circuit content was irrelevant because the compilation failed first – the agent failed to verify the environment before submission. - Sub-agent commands lacked purpose: many grep searches for patterns that do not exist in sim.c (e.g., \"out0 = out1\"), and the final gates.txt had only 6 lines instead of the required ~32k Fibonacci circuit.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Align file placement with test harness expectations",
+    "level": "subtask",
+    "description": "Before submission, examine the test script (e.g., test_outputs.py) to determine the exact file paths expected by the verifier. Copy, symlink, or create required files from the agent's working directory to those locations. Verify that the test can compile and run successfully from those paths.",
+    "application_scenarios": [
+      "Terminal-Bench tasks where the verifier runs in a different directory (e.g., /tests) than the agent's workspace (/app)",
+      "Tasks where the test harness uses absolute paths like /tests/sim.c or /tests/gates.txt",
+      "Scenarios where multiple files must be co-located for compilation (e.g., sim.c and gates.txt in the same folder)",
+      "Any task where the verifier's failure output includes 'No such file or directory' for a critical file"
+    ],
+    "execution_principles": [
+      "Read the test script (test_outputs.py) to find all file paths used in compilation and execution commands",
+      "Check current directory contents with `ls -la` and compare with expected paths",
+      "Copy all necessary source files (sim.c, gates.txt, any headers) to the expected test directory using `cp`",
+      "Do not delete or overwrite original files in /app unless required; instead duplicate or symlink",
+      "After copying, verify file existence and permissions in the target directory",
+      "Optionally execute the test compilation command manually to confirm no errors",
+      "If the test expects a specific file that the agent created/modified (e.g., gates.txt), ensure the modified version is copied, not the original",
+      "Never assume files will be found automatically; always align paths explicitly"
+    ],
+    "workflow": [
+      "read_test_script_paths_from_verifier_output_or_ctrf",
+      "list_current_directory_contents",
+      "identify_discrepancy_between_current_and_expected_paths",
+      "copy_required_files_to_expected_locations",
+      "verify_copied_files_exist_and_are_readable",
+      "run_compilation_command_manually_as_test_does",
+      "fix_any_missing_dependencies_or_permission_issues",
+      "proceed_to_submission_only_after_successful_manual_test_run"
+    ],
+    "example": {
+      "situation": "Verifier test_output.log shows: 'cc1: fatal error: /tests/sim.c: No such file or directory'. The agent's sim.c is in /app/sim.c. Test script expects it at /tests/sim.c.",
+      "steps": [
+        "Read test script: grep -rn 'sim.c' /tests/ to find expected path",
+        "List /app/ and /tests/: confirm sim.c is not in /tests/",
+        "Copy sim.c: `cp /app/sim.c /tests/sim.c`",
+        "Check if gates.txt also needed: test expects /tests/gates.txt? Copy too.",
+        "Compile test command: `gcc -O3 /tests/sim.c -o sim` - run and check for success",
+        "Run full pytest to ensure all tests pass before final submit"
+      ]
+    },
+    "failure_cases_prevented": [
+      "test_compilation_failure_due_to_missing_file",
+      "agent_working_in_wrong_directory_while_test_expects_absolute_paths",
+      "modified_file_not_reflected_in_test_location",
+      "overwriting_critical_test_files_with_stale_versions",
+      "submission_without_verifying_environment_alignment"
+    ],
+    "source": {
+      "task_id": "circuit-fibsqrt",
+      "attempt": "attempt_1",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/circuit-fibsqrt/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/circuit-fibsqrt/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/circuit-fibsqrt/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/circuit-fibsqrt/verifier/ctrf.json",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent never solved the core task: generating a 32,000-line gates.txt implementing Fibonacci-of-sqrt modulo 2^32; instead it repeatedly read sim.c and overwrote the original gates.txt with a tiny incorrect circuit. - The planner wasted all 8 attempts on redundant file-reading delegations without ever instructing the sub-agent to build the required circuit or place files in the test-expected location (/tests/). - The verifier failure (test_sqrt_fib) directly shows that sim.c was missing from /tests/, indicating the agent did not copy the required source file to the test environment. - Although test_gates_file_exists and test_gates_file_size passed, the actual circuit content was irrelevant because the compilation failed first – the agent failed to verify the environment before submission. - Sub-agent commands lacked purpose: many grep searches for patterns that do not exist in sim.c (e.g., \"out0 = out1\"), and the final gates.txt had only 6 lines instead of the required ~32k Fibonacci circuit.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Robust multi-line Python script execution via heredoc file creation",
+    "level": "subtask",
+    "description": "Write any multi-line Python script by creating a temporary .py file using shell heredoc (cat > file << 'EOF') instead of inline -c quoting, then execute the script file to avoid shell escaping errors.",
+    "application_scenarios": [
+      "Running OCR or image processing scripts that require multiple imports and loops",
+      "Executing Python code with nested quotes, lambda functions, or multi-line strings",
+      "Any task where shell quoting becomes complex or causes SyntaxError",
+      "Writing long scripts that need to be debugged or inspected later",
+      "Executing scripts that depend on file paths inside the container"
+    ],
+    "execution_principles": [
+      "Use heredoc delimiter (cat > /path/script.py << 'EOF') to write the script, then python3 /path/script.py",
+      "Always use single-quoted delimiter ('EOF') to prevent shell variable expansion",
+      "Keep the script content as-is, without escaping double quotes or newlines",
+      "Ensure the script file is created by running cat and immediately executing it in the same command chain",
+      "If heredoc fails due to shell restrictions (e.g., sh only), fallback to echo writing line by line or base64 encoding",
+      "Always verify script file exists (ls -l /path/script.py) before executing"
+    ],
+    "workflow": [
+      "formulate_python_code_as_plain_text_without_extra_escaping",
+      "use_cat_with_heredoc_to_write_script_to_file",
+      "verify_file_creation_with_ls",
+      "execute_script_with_python3",
+      "capture_stdout_and_stderr",
+      "if_execution_fails_inspect_file_content_with_cat_or_head",
+      "remove_temporary_script_if_cleanup_needed"
+    ],
+    "example": {
+      "situation": "Need to run a Python script that uses for loop, lambda, and imports multiple libraries inside a Docker container with limited shell",
+      "steps": [
+        "cat > /tmp/ocr.py << 'EOF'",
+        "from PIL import Image",
+        "import pytesseract",
+        "img = Image.open('/app/img.png')",
+        "gray = img.convert('L')",
+        "for t in [100,150,200]:",
+        "    bw = gray.point(lambda x, th=t: 0 if x < th else 255)",
+        "    print(t, pytesseract.image_to_string(bw))",
+        "EOF",
+        "python3 /tmp/ocr.py"
+      ]
+    },
+    "failure_cases_prevented": [
+      "syntax_error_from_missing_semicolons_or_bad_quoting",
+      "shell_variable_expansion_corrupting_code_content",
+      "infinite_loop_from_broken_escaping_in_lambdas",
+      "inability_to_debug_because_code_is_inline",
+      "repeated_attempts_with_same_broken_command"
+    ],
+    "source": {
+      "task_id": "code-from-image",
+      "attempt": "attempt_1",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/code-from-image/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/code-from-image/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/code-from-image/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/code-from-image/verifier/ctrf.json",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent failed to produce /app/output.txt, resulting in 0 reward; verifier tests assert file existence and content both failed. - All 8 attempts focused on OCR-based text extraction from /app/code.png but repeatedly hit syntax errors when executing inline Python, leading to wasted steps. - Even when OCR partially ran (attempt 2), the extracted text was garbled and the agent never pivoted to alternative approaches (e.g., manual pixel reading, base64 decode, or using Python to directly write the expected prefix). - The planner did not enforce a final validation step to check if /app/output.txt was created before submitting, and never instructed sub-agents to produce the required output file. - Repeated shell escaping failures (attempts 3,7,8) indicate a lack of robust script-writing technique in Docker environment.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Comprehensive image-to-text extraction with OCR fallback pipeline",
+    "level": "subtask",
+    "description": "Extract text from an image file using a multi-stage pipeline: first install tesseract and pytesseract, then preprocess the image (grayscale + threshold), try multiple OCR configurations, and as fallback read raw pixel data or base64 to manually identify text structure. Always write the final extracted text to the required output file.",
+    "application_scenarios": [
+      "Reading pseudocode or code snippets from PNG/JPEG images",
+      "Extracting text from screenshots of terminal output",
+      "Converting scanned diagrams or handwritten notes",
+      "When OCR returns garbled or incomplete text",
+      "When the image contains non-standard fonts or low contrast"
+    ],
+    "execution_principles": [
+      "First check image properties (size, mode, format) to understand its nature",
+      "Convert to grayscale and apply binary thresholding with multiple thresholds (100, 128, 150, 180)",
+      "Upscale the image 2x-3x before OCR using LANCZOS resampling to improve recognition",
+      "Try different PSM modes (3, 6, 4) and OEM modes (1, 3) for pytesseract",
+      "If OCR fails, obtain raw pixel values and print an ASCII art representation of the top-left region to manually spot characters",
+      "Always save the best extracted text to the required output file (/app/output.txt) as final validation step",
+      "When OCR still fails, fallback to using Python to decode base64 conversion of image and manually parse patterns"
+    ],
+    "workflow": [
+      "install_tesseract_and_pytesseract_if_missing",
+      "check_image_properties_with_pil",
+      "preprocess_image_with_gray_scale_and_threshold",
+      "run_pytesseract_with_different_psm_oem_combinations",
+      "upscale_image_and_retry_ocr",
+      "if_garbled_print_ascii_map_of_pixels_to_identify_pattern",
+      "select_best_text_result_and_save_to_output_file",
+      "verify_output_file_exists_and_contains_expected_content"
+    ],
+    "example": {
+      "situation": "An image /app/code.png contains pseudocode; OCR returns gibberish",
+      "steps": [
+        "apt-get install -y tesseract-ocr && pip install pytesseract Pillow",
+        "cat > /tmp/extract.py << 'EOF'",
+        "from PIL import Image; import pytesseract",
+        "img = Image.open('/app/code.png')",
+        "gray = img.convert('L')",
+        "for t in [100,150,200]:",
+        "    bw = gray.point(lambda x, th=t: 0 if x < th else 255)",
+        "    print('thresh', t, pytesseract.image_to_string(bw, config='--psm 6'))",
+        "EOF",
+        "python3 /tmp/extract.py > /tmp/ocr_out.txt"
+      ]
+    },
+    "failure_cases_prevented": [
+      "ocr_returning_empty_or_garbled_text_without_retry",
+      "not_trying_different_preprocessing_thresholds",
+      "assuming_ocr_will_work_with_default_settings",
+      "forgetting_to_save_extracted_text_to_required_output_file",
+      "giving_up_after_first_ocr_failure_instead_of_using_ascii_fallback"
+    ],
+    "source": {
+      "task_id": "code-from-image",
+      "attempt": "attempt_1",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/code-from-image/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/code-from-image/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/code-from-image/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/code-from-image/verifier/ctrf.json",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent failed to produce /app/output.txt, resulting in 0 reward; verifier tests assert file existence and content both failed. - All 8 attempts focused on OCR-based text extraction from /app/code.png but repeatedly hit syntax errors when executing inline Python, leading to wasted steps. - Even when OCR partially ran (attempt 2), the extracted text was garbled and the agent never pivoted to alternative approaches (e.g., manual pixel reading, base64 decode, or using Python to directly write the expected prefix). - The planner did not enforce a final validation step to check if /app/output.txt was created before submitting, and never instructed sub-agents to produce the required output file. - Repeated shell escaping failures (attempts 3,7,8) indicate a lack of robust script-writing technique in Docker environment.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Correct Target Architecture Specification for Autotools Builds",
+    "level": "subtask",
+    "description": "When building a software project that uses an autotools-style configure script, always read the '--help' output to find the exact list of supported target architectures and their naming conventions. Provide the target as a simple prefix such as 'x86_64-linux' rather than a full triple like 'x86_64-unknown-linux-gnu' if the documentation shows only prefixes.",
+    "application_scenarios": [
+      "Configuring CompCert from source",
+      "Building other cross-compilers or toolchains with autotools configure",
+      "Compiling projects where target architecture is a required positional argument",
+      "Debugging 'invalid eabi/system' errors during configure",
+      "Setting up build environments for Linux-on-x86_64 targets"
+    ],
+    "execution_principles": [
+      "Run `./configure --help` first to see the exact list of supported targets and their format.",
+      "Match the target string exactly to one of the listed prefixes (e.g., 'x86_64-linux' not 'x86_64-unknown-linux-gnu').",
+      "Do not add 'unknown' or 'gnu' unless explicitly shown in the help.",
+      "If the help shows a prefix list, use the bare prefix without extra EABI/system parts.",
+      "After configuring, verify that `Makefile.config` or equivalent output file is created before proceeding to build.",
+      "When an error says 'invalid eabi/system', re-read the help to understand the allowed suffixes."
+    ],
+    "workflow": [
+      "run_configure_help_with_pager",
+      "parse_supported_target_list_from_help_output",
+      "select_or_construct_the_correct_target_string_from_the_list",
+      "run_configure_with_chosen_target_and_any_needed_flags",
+      "check_exit_code_and_look_for_key_output_files_like_Makefile_config",
+      "if_configure_fails_with_invalid_eabi_system_return_to_step_1_and_review_target_syntax",
+      "confirm_configuration_successful_before_proceeding_to_make"
+    ],
+    "example": {
+      "situation": "Agent needs to configure CompCert on an x86_64 Ubuntu system. It runs `./configure x86_64-unknown-linux-gnu` and gets 'invalid eabi/system'. The help output shows 'Supported targets: ... x86_64-linux'.",
+      "steps": [
+        "Read configure --help output and find the target list (e.g., 'x86_64-linux' under x86 targets).",
+        "Construct the correct target string: 'x86_64-linux' (no extra 'unknown' or 'linux-gnu').",
+        "Run: `./configure x86_64-linux` and check that exit code is 0 and Makefile.config is generated.",
+        "Proceed to `make` to build the project."
+      ]
+    },
+    "failure_cases_prevented": [
+      "repeated_configure_errors_with_invalid_eabi_system",
+      "wasting_attempts_on_irrelevant_coq_version_workarounds_when_configure_never_succeeded",
+      "running_make_on_unconfigured_source_leading_to_spurious_errors",
+      "not_reading_help_output_then_guessing_target_strings"
+    ],
+    "source": {
+      "task_id": "compile-compcert",
+      "attempt": "attempt_1",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/compile-compcert/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/compile-compcert/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/compile-compcert/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/compile-compcert/verifier/ctrf.json",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent failed to produce `/tmp/CompCert/ccomp`, causing all 3 verifier tests to fail (reward 0). - Despite downloading and extracting the source correctly, the agent never successfully ran `./configure` with the proper target string—it used `x86_64-unknown-linux-gnu` instead of the valid `x86_64-linux`, as shown in the configure help. - The agent wasted attempts on git clone failures, Coq version workarounds, and repeated installation of irrelevant packages, without systematically reading the configure help to resolve the target syntax error. - The sub-agent repeatedly tried incorrect target strings and failed to act on the clear error messages (\"invalid eabi/system\"), leading to exhausted attempts.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Systematic Debug Workflow for Build Configuration Failures",
+    "level": "subtask",
+    "description": "When a build configuration step (e.g., `./configure`) fails, do not repeat the same command with minor variations. Instead, collect diagnostic information in a fixed order: check the configure help, inspect error messages, verify required dependencies are installed, and then apply targeted fixes one at a time. Avoid redundant command repetition.",
+    "application_scenarios": [
+      "Troubleshooting configure failures during software compilation",
+      "Debugging missing dependency errors in autotools or cmake projects",
+      "Fixing Coq version, Menhir, or other toolchain version mismatches",
+      "Reducing wasted attempts when a configure error is encountered",
+      "Building projects with unusual target architecture requirements"
+    ],
+    "execution_principles": [
+      "Immediately after a configure failure, capture the full error output and identify the exact error type (e.g., 'invalid eabi/system', 'unknown option', 'missing tool').",
+      "Before trying a fix, consult the configure help to understand allowed options and target formats.",
+      "Check that all critical dependencies (OCaml, Coq, Menhir, parser generators) are installed and at the correct version with simple `--version` commands.",
+      "Apply only one fix at a time (e.g., change target string, then retry; install a package, then retry).",
+      "After each fix, verify that the configure step generates the expected output files (e.g., Makefile.config).",
+      "If after 2-3 fixes the same error persists, escalate by examining the configure script logic (`grep`, `head`) rather than guessing new parameters.",
+      "Maintain a checklist of what has been tried to avoid repeating identical commands across attempts."
+    ],
+    "workflow": [
+      "capture_full_error_output_from_failed_configure",
+      "run_configure_help_and_read_supported_targets_and_options",
+      "check_installed_tool_versions_ocaml_coq_menhir_gcc_make",
+      "install_missing_or_incompatible_tools_using_apt_or_opam",
+      "apply_one_fix_e_g_correct_target_or_coq_ignore_flag",
+      "rerun_configure_and_check_for_key_output_files",
+      "if_successful_proceed_to_make_else_return_to_diagnosis",
+      "log_failed_attempts_to_avoid_repeating_them"
+    ],
+    "example": {
+      "situation": "Agent runs `./configure x86_64-linux` and gets error about unsupported Coq version 8.18.0 (required 8.12–8.16). It then tries multiple configure invocations with `--ignore-coq-version` but keeps failing because the target string is still wrong.",
+      "steps": [
+        "Capture error output: 'Error: Coq version 8.18.0 is unsupported'.",
+        "Run `./configure --help | grep -i ignore-coq` and find the `--ignore-coq-version` flag.",
+        "Check that Makefile.config was not generated; check that dependencies are installed.",
+        "Install correct Coq version via `apt-get install coq=8.16.1` or use the flag.",
+        "Apply `--ignore-coq-version` along with the correct target `x86_64-linux`.",
+        "Re-run `./configure --ignore-coq-version x86_64-linux` and verify success.",
+        "If still fails, check the configure script (`grep coq_ver configure`) to understand the version check logic."
+      ]
+    },
+    "failure_cases_prevented": [
+      "endless_repetition_of_same_configure_command_with_minor_variations",
+      "wasting_attempts_on_coq_version_when_target_string_is_the_real_problem",
+      "failing_to_switch_troubleshooting_strategy_after_repeated_errors",
+      "not_verifying_configure_success_by_checking_generated_files",
+      "overlooking_dependency_installation_before_configure"
+    ],
+    "source": {
+      "task_id": "compile-compcert",
+      "attempt": "attempt_1",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/compile-compcert/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/compile-compcert/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/compile-compcert/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/compile-compcert/verifier/ctrf.json",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent failed to produce `/tmp/CompCert/ccomp`, causing all 3 verifier tests to fail (reward 0). - Despite downloading and extracting the source correctly, the agent never successfully ran `./configure` with the proper target string—it used `x86_64-unknown-linux-gnu` instead of the valid `x86_64-linux`, as shown in the configure help. - The agent wasted attempts on git clone failures, Coq version workarounds, and repeated installation of irrelevant packages, without systematically reading the configure help to resolve the target syntax error. - The sub-agent repeatedly tried incorrect target strings and failed to act on the clear error messages (\"invalid eabi/system\"), leading to exhausted attempts.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Create verifier-required test scripts and assets",
+    "level": "subtask",
+    "description": "After completing the core setup, ensure all files and scripts that the verifier will invoke (e.g., /tests/verify.sh) exist and are executable. Cross-reference the test output or verifier expectations to identify required assets.",
+    "application_scenarios": [
+      "When a verifier test runs a custom shell script to check the setup",
+      "When the task description mentions a test script or verification step",
+      "When the verifier test_output.log shows 'No such file or directory' for a script",
+      "When the environment lacks a prescribed test harness that must be present",
+      "When prior attempts failed due to missing verifier files"
+    ],
+    "execution_principles": [
+      "Check the verifier test output early to identify required file paths",
+      "Create any missing test scripts with the exact content expected by the verifier",
+      "Ensure test scripts are placed in the exact directory expected by the verifier",
+      "Make test scripts executable with chmod +x",
+      "Test the script locally before final submission",
+      "Do not assume the verifier will use the same infrastructure you have built"
+    ],
+    "workflow": [
+      "examine_verifier_test_output_log",
+      "identify_all_file_paths_and_scripts_expected",
+      "create_or_place_each_required_file_with_correct_content",
+      "set_executable_permission_where_needed",
+      "run_the_verifier_test_locally_to_confirm_pass",
+      "only_then_consider_the_setup_complete"
+    ],
+    "example": {
+      "situation": "A verifier test calls 'bash /tests/verify.sh' to check if hello.html exists with correct content. The sub-agent set up all services but did not create this script.",
+      "steps": [
+        "read verifier output: it shows 'bash: /tests/verify.sh: No such file or directory'",
+        "deduce that the test suite expects a custom verify.sh script at /tests/",
+        "create /tests/ directory if missing",
+        "write the verify.sh script containing the checks (e.g., 'if [ -f /var/www/html/hello.html ]; then echo TEST PASSED; else echo TEST FAILED; fi')",
+        "chmod +x /tests/verify.sh",
+        "run the test locally: bash /tests/verify.sh and confirm 'TEST PASSED' appears"
+      ]
+    },
+    "failure_cases_prevented": [
+      "verifier_fails_with_missing_script_error",
+      "agent_declares_success_while_verifier_cannot_run",
+      "wasted_attempts_on_infrastructure_while_test_harness_missing",
+      "incorrect_assumption_that_verifier_uses_same_checks_as_agent"
+    ],
+    "source": {
+      "task_id": "configure-git-webserver",
+      "attempt": "attempt_1",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/configure-git-webserver/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/configure-git-webserver/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/configure-git-webserver/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/configure-git-webserver/verifier/ctrf.json",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The verifier test failed because the required verification script `/tests/verify.sh` was never created or placed, causing the test to immediately error with \"No such file or directory\". - The sub-agent repeatedly attempted to set up the git repo, hooks, and web server, but never validated that the verifier's expected test assets existed. - The git repository path was confused between `/git/server` and `/git/server.git`, leading to a broken symlink or missing bare repo that caused local push attempts to fail. - Despite multiple end-to-end test attempts, the final state still had `/git/server` not recognized as a git repository, indicating persistent setup errors. - The sub-agent self-reported success multiple times but never cross-checked against the actual verifier test requirements.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Set up bare git repository with correct path and verify local push",
+    "level": "subtask",
+    "description": "Create the bare git repository at the exact path the remote will refer to, ensure it is a valid bare repository, and test a local push from a temporary clone before claiming success. Avoid symlink confusion and verify git internals with 'git rev-parse --is-bare-repository'.",
+    "application_scenarios": [
+      "When setting up a git repository for deployment via hooks",
+      "When the remote clone path is specified as /git/server (SCP-style)",
+      "When creating bare repositories and need to ensure they are recognized as git repos",
+      "When troubleshooting 'does not appear to be a git repository' errors",
+      "When the setup involves multiple directory layers (e.g., /git/server.git vs /git/server)"
+    ],
+    "execution_principles": [
+      "Always initialize the bare repository with 'git init --bare <path>' not just mkdir",
+      "Use the exact path that will be used in git clone/push commands",
+      "If a symlink is needed, ensure the target is a valid bare repo before creating the link",
+      "Verify the repo is recognized: run 'git rev-parse --is-bare-repository' inside the repo directory",
+      "After setup, perform a local push from a temporary test repo to confirm the bare repo accepts commits",
+      "Clean up test repos to avoid leftover directories",
+      "Do not rely on hooks to verify repo validity; hooks are only triggered after a push"
+    ],
+    "workflow": [
+      "choose_canonical_path_for_bare_repo",
+      "run_git_init_bare_on_that_path",
+      "verify_with_git_rev_parse_is_bare_repository",
+      "set_permissions_and_ownership_if_needed",
+      "create_a_temporary_local_clone_and_push_a_test_commit",
+      "confirm_push_succeeds_with_exit_code_0",
+      "remove_temporary_test_files"
+    ],
+    "example": {
+      "situation": "The agent created /git/server.git with mkdir and later symlinked /git/server -> /git/server.git, but git push fails with 'does not appear to be a git repository'.",
+      "steps": [
+        "check current content: ls -la /git/server shows symlink to /git/server.git",
+        "enter /git/server.git and run 'git rev-parse --is-bare-repository' -> returns 'true' if valid",
+        "if not true, reinitialize: cd /git/server.git && git init --bare .",
+        "ensure symlink is correct: ln -sf /git/server.git /git/server",
+        "test push: cd /tmp && mkdir testpush && cd testpush && git init && echo 'x' > f && git add f && git commit -m 't' && git remote add origin /git/server && git push origin master",
+        "if push fails, debug with 'git remote -v' and 'git ls-remote origin'",
+        "clean up: rm -rf /tmp/testpush"
+      ]
+    },
+    "failure_cases_prevented": [
+      "push_fails_with_not_a_git_repository_error",
+      "symlink_target_not_a_valid_bare_repo",
+      "agent_thinks_repo_is_setup_when_it_is_not",
+      "multiple_attempts_to_fix_hooks_while_repo_itself_is_broken",
+      "inconsistent_paths_between_setup_and_test_commands"
+    ],
+    "source": {
+      "task_id": "configure-git-webserver",
+      "attempt": "attempt_1",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/configure-git-webserver/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/configure-git-webserver/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/configure-git-webserver/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/configure-git-webserver/verifier/ctrf.json",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The verifier test failed because the required verification script `/tests/verify.sh` was never created or placed, causing the test to immediately error with \"No such file or directory\". - The sub-agent repeatedly attempted to set up the git repo, hooks, and web server, but never validated that the verifier's expected test assets existed. - The git repository path was confused between `/git/server` and `/git/server.git`, leading to a broken symlink or missing bare repo that caused local push attempts to fail. - Despite multiple end-to-end test attempts, the final state still had `/git/server` not recognized as a git repository, indicating persistent setup errors. - The sub-agent self-reported success multiple times but never cross-checked against the actual verifier test requirements.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Robust Python Script Execution via File Write",
+    "level": "subtask",
+    "description": "When executing multi-line Python code in a Docker container, write the script to a file using cat with a heredoc, then run the file. Avoid inline execution or python -c with complex strings to prevent syntax errors from shell escaping.",
+    "application_scenarios": [
+      "Running multi-line Python scripts inside a Docker container",
+      "Executing code that imports libraries and processes data",
+      "When shell heredoc or inline Python commands fail due to special characters",
+      "Ensuring consistent script behavior across different shells",
+      "Debugging script output by inspecting the file content before execution"
+    ],
+    "execution_principles": [
+      "Use cat > /path/script.py << 'EOF' ... EOF to avoid variable expansion",
+      "Always run the script with python3 /path/script.py, not with heredoc piping",
+      "After writing, verify file content with cat or head before executing",
+      "Capture full stdout/stderr by redirecting to a file if needed (e.g., > /app/output.log 2>&1)",
+      "Use -u flag (python3 -u) for unbuffered output when real-time capture is required",
+      "Never embed executable code directly in shell arguments; use file-based approach",
+      "If the script fails, inspect the written file for truncation or corruption"
+    ],
+    "workflow": [
+      "install_required_packages_with_pip",
+      "write_script_to_file_using_cat_heredoc",
+      "verify_script_content_with_cat_or_head",
+      "execute_script_with_python3_and_capture_output",
+      "check_exit_code_and_output_for_errors",
+      "if_failed_investigate_file_content_and_fix_syntax_issues"
+    ],
+    "example": {
+      "situation": "Agent needs to load a HuggingFace dataset, filter by domain, compute tokens, and save result.",
+      "steps": [
+        "pip install -q datasets transformers",
+        "cat > /app/compute.py << 'PYEOF'\nfrom datasets import load_dataset\nds = load_dataset('user/dataset')\ntrain = ds['train']\nscience = train.filter(lambda x: x['domain'] == 'science')\nprint(len(science))\nPYEOF",
+        "cat /app/compute.py to verify content",
+        "python3 /app/compute.py",
+        "Check output for correct count, then write to /app/answer.txt"
+      ]
+    },
+    "failure_cases_prevented": [
+      "heredoc_syntax_errors_from_special_characters",
+      "inline_python_code_truncation_or_escaping_issues",
+      "corrupted_script_content_due_to_mixed_quoting",
+      "inability_to_debug_script_because_no_file_exists"
+    ],
+    "source": {
+      "task_id": "count-dataset-tokens",
+      "attempt": "attempt_1",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/count-dataset-tokens/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/count-dataset-tokens/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/count-dataset-tokens/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/count-dataset-tokens/verifier/ctrf.json",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent exhausted all 8 attempts solely on dataset exploration (loading, checking structure) and never advanced to filtering for \"science\" domain, tokenizing with Qwen2.5-1.5B-Instruct, or writing the final token count to /app/answer.txt. - Repeated heredoc syntax errors (attempts 7-8) and a corrupted script output (attempt 8 printed irrelevant algorithm code) prevented any meaningful analysis, showing poor shell command execution handling. - Verifier failure confirms /app/answer.txt was never created; the expected answer \"79586\" was never produced, indicating the agent lacked a final result writing step. - No submission was called, and the planner did not adapt the strategy after multiple failed attempts; it kept re-requesting exploration with similar instructions.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Direct Task Execution After Initial Exploration",
+    "level": "subtask",
+    "description": "After a successful data loading and structure discovery, immediately proceed to compute the required metric (filter, tokenize, count) and write the final answer to /app/answer.txt. Do not repeat exploration steps; convert the known schema into a complete processing script.",
+    "application_scenarios": [
+      "Benchmark tasks that require extracting a single numeric answer from a dataset",
+      "When the dataset structure is already known from earlier steps",
+      "After verifying columns and split names, directly implement filtering and computation",
+      "Avoiding step budget exhaustion by skipping redundant exploration",
+      "Tasks with a clear output file requirement like /app/answer.txt"
+    ],
+    "execution_principles": [
+      "Perform one exploration step to confirm column names and split existence",
+      "Immediately write a single script that loads, filters, applies tokenizer, and writes answer",
+      "Do not re-run exploration commands; trust the acquired schema information",
+      "Token count must be written as plain integer (no extra text) to /app/answer.txt",
+      "Use the exact tokenizer model specified in the task (e.g., Qwen2.5-1.5B-Instruct)",
+      "If filtering yields zero rows, log a warning but still write an answer (e.g., 0)",
+      "Test the script locally if possible before final execution"
+    ],
+    "workflow": [
+      "explore_dataset_once_to_get_column_names_and_splits",
+      "identify_filter_column_and_tokenizer_model",
+      "compose_single_script_that_loads_filters_tokenizes_and_writes_answer",
+      "install_required_packages_if_not_already_installed",
+      "write_and_execute_the_complete_script",
+      "verify_answer_txt_exists_and_contains_only_the_integer"
+    ],
+    "example": {
+      "situation": "After discovering that dataset 'x' has a 'train' split with columns 'domain' and 'text', and task requires counting tokens for 'science' domain using 'model/m'.",
+      "steps": [
+        "From exploration: columns are ['domain','text']; split is 'train'.",
+        "Compose script: load_dataset, filter domain=='science', load tokenizer from 'model/m', compute sum of lengths, write integer to /app/answer.txt.",
+        "Write script to file and execute.",
+        "Confirm /app/answer.txt contains the numeric answer."
+      ]
+    },
+    "failure_cases_prevented": [
+      "spending_all_budget_on_exploration_only",
+      "never_creating_the_required_output_file",
+      "repeating_identical_data_loading_commands_wasting_steps",
+      "overlooking_the_final_computation_step_altogether"
+    ],
+    "source": {
+      "task_id": "count-dataset-tokens",
+      "attempt": "attempt_1",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/count-dataset-tokens/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/count-dataset-tokens/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/count-dataset-tokens/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/count-dataset-tokens/verifier/ctrf.json",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent exhausted all 8 attempts solely on dataset exploration (loading, checking structure) and never advanced to filtering for \"science\" domain, tokenizing with Qwen2.5-1.5B-Instruct, or writing the final token count to /app/answer.txt. - Repeated heredoc syntax errors (attempts 7-8) and a corrupted script output (attempt 8 printed irrelevant algorithm code) prevented any meaningful analysis, showing poor shell command execution handling. - Verifier failure confirms /app/answer.txt was never created; the expected answer \"79586\" was never produced, indicating the agent lacked a final result writing step. - No submission was called, and the planner did not adapt the strategy after multiple failed attempts; it kept re-requesting exploration with similar instructions.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  }
+]

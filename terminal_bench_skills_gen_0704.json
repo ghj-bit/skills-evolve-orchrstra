@@ -1,0 +1,2152 @@
+[
+  {
+    "name": "Robust environment setup and dependency management",
+    "level": "subtask",
+    "description": "When executing a pipeline that requires Python libraries (pandas, numpy, scikit-learn, pgmpy, etc.), first ensure all dependencies are installed and accessible, handling common pitfalls such as pip's --break-system-packages flag and library version incompatibilities.",
+    "application_scenarios": [
+      "Any task requiring pandas, scikit-learn, pgmpy, or other scientific Python libraries",
+      "Running Python scripts in a bare Docker container without preinstalled packages",
+      "Tasks that involve Bayesian network modeling, causal inference, or statistical analysis",
+      "Environments where system Python packages are managed by apt and pip is restricted",
+      "Scenarios where library APIs change between versions (e.g., pgmpy estimator imports)"
+    ],
+    "execution_principles": [
+      "Before running Python code, check whether required modules exist by testing imports in isolation.",
+      "If pip install fails due to external package management restrictions, use --break-system-packages or install via apt first (e.g., python3-pip).",
+      "After installation, verify the installed version and test minimal import of the library's key classes.",
+      "When encountering API changes (e.g., deprecated import paths), use library introspection (dir(), inspect) to discover the actual available classes and methods.",
+      "Always include a fallback plan if a specific class or estimator is unavailable (e.g., use manual computation instead of pgmpy's LinearGaussianMLE)."
+    ],
+    "workflow": [
+      "query_required_packages",
+      "attempt_import_or_collect_error",
+      "install_missing_packages_with_appropriate_flags",
+      "verify_installation_by_minimal_import",
+      "check_library_version_and_available_api",
+      "fallback_to_alternative_implementation_if_api_missing"
+    ],
+    "example": {
+      "situation": "Agent needs to fit a Linear Gaussian Bayesian Network but pgmpy's LinearGaussianMLE estimator is not importable in v1.1.2.",
+      "steps": [
+        "Run 'pip install pgmpy 2>&1 | tail -5' to install.",
+        "Test import: 'python3 -c \"from pgmpy.estimators import LinearGaussianMLE\"' (fails).",
+        "Use introspection: 'python3 -c \"from pgmpy.estimators import *; print([x for x in dir() if 'Estimator' in x])\"'.",
+        "Discover alternative: 'from pgmpy.estimators import HillClimbSearch, MaximumLikelihoodEstimator'.",
+        "Use HillClimbSearch with BIC score instead of the missing estimator.",
+        "If structure learning fails, compute partial correlations manually as a fallback."
+      ]
+    },
+    "failure_cases_prevented": [
+      "pip_install_fails_due_to_external_package_management_restrictions",
+      "python_script_fails_with_modulenotfounderror",
+      "library_api_has_changed_and_expected_class_is_missing",
+      "incomplete_installation_leads_to_import_errors_in_mid_script",
+      "time_wasted_on_debugging_import_issues_instead_of_task_logic"
+    ],
+    "source": {
+      "task_id": "bn-fit-modify",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/bn-fit-modify/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/bn-fit-modify/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/bn-fit-modify/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/bn-fit-modify/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": true,
+      "trajectory_diagnosis": "- Success achieved: all 9 verifier tests passed after the agent recovered from initial library import failures and pgmpy version incompatibilities. - Early attempts failed due to missing pandas and pgmpy API changes (LinearGaussianMLE not importable), demonstrating need for robust dependency setup and fallback strategies. - Agent recovered by installing packages with --break-system-packages, exploring pgmpy capabilities, and using HillClimbSearch with BIC score instead of the unavailable estimator. - Final solution correctly recovered the DAG via structure learning, performed intervention by setting Y CPD to deterministic zero, and saved three required CSV files. - Verification step confirmed file formats, edge counts, and Y statistics (mean near zero, tiny variance), matching expected intervention results.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Causal structure learning and intervention for linear Gaussian BNs",
+    "level": "subtask",
+    "description": "Given a dataset of continuous variables, recover the underlying DAG by combining partial correlation analysis with structure scoring, fit a Linear Gaussian Bayesian Network, perform a do-intervention by overriding a node's CPD to a deterministic value, and sample from the interventional distribution.",
+    "application_scenarios": [
+      "Recovering causal relationships from observational continuous data",
+      "Simulating effects of hard interventions (do-operator) in a Bayesian network",
+      "Tasks that require saving learned DAG, intervened DAG, and sampled data to CSV",
+      "Evaluating conditional independencies using partial correlation tests",
+      "Benchmark problems where ground truth edges are known to follow alphabetical ordering constraints"
+    ],
+    "execution_principles": [
+      "Start by computing the unconditional correlation matrix to identify strong dependencies and potential root nodes.",
+      "Use partial correlations conditioned on candidate root variables (e.g., U) to detect direct edges vs spurious correlations.",
+      "Validate the recovered DAG against known constraints (e.g., a node with no parents should have zero partial correlation with all others given itself).",
+      "When using HillClimbSearch, provide a proper scoring method like BIC; fix edge directions by manual reasoning if needed.",
+      "For intervention: remove all incoming edges of the target node, then replace its CPD parameters with a deterministic distribution (mean=intervention_value, variance extremely small).",
+      "Sample from the intervened model to generate the final dataset; verify that the intervened variable's mean and variance match the set value.",
+      "Save DAGs in 'to,from' CSV format with one edge per row."
+    ],
+    "workflow": [
+      "load_data_and_inspect_columns",
+      "compute_correlation_and_partial_correlation_matrices",
+      "propose_dag_edges_from_partial_correlation_thresholds",
+      "apply_structure_learning_algorithm_hillclimbsearch_or_exhaustive",
+      "fix_edge_directions_using_expert_knowledge_or_alpha_betical_ordering",
+      "fit_lineargaussian_bayesian_network_on_original_data",
+      "intervene_by_setting_target_node_cpd_to_deterministic_value",
+      "sample_from_intervened_model_and_save_three_csv_files"
+    ],
+    "example": {
+      "situation": "Agent must recover a 5-node DAG (U,Y,R,D,M) from 10k samples, then do-intervene on Y=0 and generate new samples.",
+      "steps": [
+        "Load data: pd.read_csv('/app/bn_sample_10k.csv') and check columns.",
+        "Compute correlation matrix; observe U correlates with all others.",
+        "Compute partial correlations of each pair given U; identify edges remaining (e.g., Y-D, R-M).",
+        "Run HillClimbSearch with BICScore(df) to get initial DAG.",
+        "Correct edge direction: ensure U has no parents (if learned reversed, swap).",
+        "Build model: LinearGaussianBayesianNetwork(edges).",
+        "Fit model: model.fit(df).",
+        "Intervene on Y: remove parent edges of Y, set Y's CPD to Normal(0.0, 1e-9).",
+        "Sample 10k points: model.sample(10000) and save to final_bn_sample.csv.",
+        "Save original DAG to learned_dag.csv and intervened DAG (without Y's incoming edges) to intervened_dag.csv."
+      ]
+    },
+    "failure_cases_prevented": [
+      "incorrect_edge_direction_where_root_node_appears_as_child",
+      "missing_edge_identification_due_to_overreliance_on_simple_correlation",
+      "improper_intervention_by_not_removing_incoming_edges",
+      "sampling_from_unfitted_model_results_in_nan_or_constant_output",
+      "csv_output_format_mismatch_with_verifier_expectations",
+      "forgetting_to_verify_intervention_effect_on_target_variable_statistics"
+    ],
+    "source": {
+      "task_id": "bn-fit-modify",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/bn-fit-modify/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/bn-fit-modify/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/bn-fit-modify/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/bn-fit-modify/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": true,
+      "trajectory_diagnosis": "- Success achieved: all 9 verifier tests passed after the agent recovered from initial library import failures and pgmpy version incompatibilities. - Early attempts failed due to missing pandas and pgmpy API changes (LinearGaussianMLE not importable), demonstrating need for robust dependency setup and fallback strategies. - Agent recovered by installing packages with --break-system-packages, exploring pgmpy capabilities, and using HillClimbSearch with BIC score instead of the unavailable estimator. - Final solution correctly recovered the DAG via structure learning, performed intervention by setting Y CPD to deterministic zero, and saved three required CSV files. - Verification step confirmed file formats, edge counts, and Y statistics (mean near zero, tiny variance), matching expected intervention results.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Build software from Debian source without optional X11 dependencies",
+    "level": "subtask",
+    "description": "When building a package from Debian source, identify and remove optional GUI dependencies (especially X11) to produce a headless binary. Modify Makefile or config files to drop -lX11 and -DXWINGRAPHX flags, then verify with ldd that no X11 libraries are linked.",
+    "application_scenarios": [
+      "Building headless versions of packages that have optional X11 GUI support",
+      "Compiling source obtained via apt-get source in a container without X11 libraries",
+      "Adapting Debian source packages for server or embedded environments",
+      "Eliminating unnecessary library dependencies to reduce binary size"
+    ],
+    "execution_principles": [
+      "Always inspect the source Makefile and config.h for X11/GUI related flags before compiling",
+      "Modify only the required build files while keeping the overall build structure intact",
+      "Use apt-get source after ensuring dpkg-dev is installed to handle .dsc unpacking",
+      "Test the compiled binary with ldd to confirm no unwanted shared library dependencies",
+      "Remove any -lX11, -lXext, -DXWINGRAPHX and similar flags from link and compile lines",
+      "Prefer curses-based or no-GUI mode when X11 is not available or required",
+      "Run a quick functional test (e.g., help or version) to ensure no runtime crashes"
+    ],
+    "workflow": [
+      "install_dpkg_dev_if_missing",
+      "add_deb_src_repos_and_update",
+      "download_source_with_apt_get_source",
+      "examine_src_makefile_and_config_for_x11_flags",
+      "remove_or_comment_out_x11_flags_in_makefile_or_config_h",
+      "compile_with_make_and_check_for_build_errors",
+      "verify_binary_dependencies_with_ldd",
+      "install_binary_to_path_and_test_basic_functionality"
+    ],
+    "example": {
+      "situation": "Build pMARS from Debian source for a headless server. The default Makefile includes -lX11 and -DXWINGRAPHX, causing link failure because X11 libraries are absent.",
+      "steps": [
+        "apt-get install -y dpkg-dev && apt-get source pmars",
+        "cd pmars-0.9.4/src && grep -E 'X11|GRAPHX' Makefile",
+        "sed -i 's/-DXWINGRAPHX//g' Makefile && sed -i 's/-lX11//g' Makefile",
+        "make clean && make",
+        "ldd pmars | grep -E 'X11|x11' → should return empty",
+        "cp pmars /usr/local/bin/",
+        "pmars --help | head -5"
+      ]
+    },
+    "failure_cases_prevented": [
+      "missing_x11_libraries_causing_compile_or_link_errors",
+      "binary_incorrectly_linked_against_x11_libraries",
+      "build_failing_due_to_undefined_x11_symbols",
+      "unnecessary_package_installations_that_bloat_container",
+      "headless_environment_runtime_segfault_from_x11_init"
+    ],
+    "source": {
+      "task_id": "build-pmars",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/build-pmars/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/build-pmars/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/build-pmars/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/build-pmars/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": true,
+      "trajectory_diagnosis": "- The trajectory succeeded with all 4 verifier tests passing (ctrf.json shows 4 passed). Reward is 1.0. - Key success drivers: planner decomposed the task into five sequential attempts (source download, build without X11, verification, finalization, submit), each delegating to a sub-agent that successfully executed commands. - Early error (missing dpkg-dev) was corrected by installing it; the build failure due to X11 dependencies was fixed by modifying Makefile flags. - The planner actively used sub-agent reports to correct mistakes: the wrong debugger flag (-d) identified in attempt 3 was corrected to -e in attempt 4; the warrior file path issue was resolved by copying files to /root. - Final ldd output confirmed no X11 dependencies; the exact test command from the task worked from /root with relative paths. No verifier failures occurred.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Ensure command-line tool works with relative file paths and correct flags",
+    "level": "subtask",
+    "description": "When verifying a newly built tool, test it with the exact command patterns expected by tasks. Ensure required input files are accessible from common working directories (e.g., /root), identify the correct flag for debug or verbose modes, and validate output format.",
+    "application_scenarios": [
+      "Testing binaries that expect data files in the current working directory",
+      "Verifying command-line flags against tool help or man pages",
+      "Preparing a tool for automated test suites that run from a specific working directory",
+      "Debugging command output parsing when initial flag guess is wrong",
+      "Handling tools that require absolute paths for non-standard arguments"
+    ],
+    "execution_principles": [
+      "Always check the tool's help output (--help or -h) for available flags before assuming flag names",
+      "Copy required input files to /root or a standard directory that the verifier will use",
+      "Run the exact test command from the task specification and compare output format exactly",
+      "If a first flag attempt causes a segfault, look up the correct flag (e.g., -e for debug, not -d) via help or man",
+      "Ensure the binary is on PATH and that relative path arguments resolve when run from the test directory",
+      "Test both absolute and relative path variants to confirm portability",
+      "Capture full stdout/stderr and parse for expected strings or numeric patterns"
+    ],
+    "workflow": [
+      "examine_tool_help_to_confirm_flag_syntax",
+      "locate_required_data_files_in_source_or_extracted_directories",
+      "copy_data_files_to_home_directory_or_standard_share_location",
+      "run_test_command_from_root_or_task_specified_directory",
+      "verify_output_contains_expected_pattern",
+      "check_for_segfaults_or_error_exit_codes",
+      "adjust_flags_or_paths_based_on_errors_and_retry",
+      "record_correct_command_for_final_submission"
+    ],
+    "example": {
+      "situation": "A pMARS binary is built but the debugger test with -d flag causes a segfault. The task later expects the debugger to work, and the test command uses relative filenames.",
+      "steps": [
+        "pmars --help | grep -i debug → shows '-e' for debugger entry, not '-d'",
+        "find /app -name 'flashpaper.red' -o -name 'rave.red'",
+        "cp /app/warriors/*.red /root/",
+        "cd /root && pmars -e -r 10 -f flashpaper.red rave.red 2>&1 | head -20",
+        "confirm output shows program listing without segfault",
+        "cd /root && pmars -b -r 50 -f flashpaper.red rave.red | tail -n 1",
+        "confirm output matches 'Results: X Y Z' format"
+      ]
+    },
+    "failure_cases_prevented": [
+      "tool_segfault_from_wrong_debug_flag",
+      "test_command_fails_because_data_files_not_in_current_directory",
+      "output_format_mismatch_causing_verifier_tests_to_fail",
+      "unreliable_binary_when_run_from_non_source_directory",
+      "incorrect_assumption_about_flag_shortcuts_leading_to_wrong_verification"
+    ],
+    "source": {
+      "task_id": "build-pmars",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/build-pmars/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/build-pmars/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/build-pmars/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/build-pmars/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": true,
+      "trajectory_diagnosis": "- The trajectory succeeded with all 4 verifier tests passing (ctrf.json shows 4 passed). Reward is 1.0. - Key success drivers: planner decomposed the task into five sequential attempts (source download, build without X11, verification, finalization, submit), each delegating to a sub-agent that successfully executed commands. - Early error (missing dpkg-dev) was corrected by installing it; the build failure due to X11 dependencies was fixed by modifying Makefile flags. - The planner actively used sub-agent reports to correct mistakes: the wrong debugger flag (-d) identified in attempt 3 was corrected to -e in attempt 4; the warrior file path issue was resolved by copying files to /root. - Final ldd output confirmed no X11 dependencies; the exact test command from the task worked from /root with relative paths. No verifier failures occurred.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Password Cracking for Encrypted Archives",
+    "level": "subtask",
+    "description": "Systematically crack password-protected archive files (7z, zip, rar) using John the Ripper by extracting the hash, installing dependencies, and leveraging built-in wordlists before crafting custom ones.",
+    "application_scenarios": [
+      "Cracking password-protected .7z files found in CTF or benchmark tasks",
+      "Decrypting archives that contain the required solution output",
+      "Any task where a file is encrypted and the password must be recovered",
+      "Security/forensic challenges requiring archive password recovery"
+    ],
+    "execution_principles": [
+      "First confirm the archive format and list contents using appropriate tool (7z l)",
+      "Install both the archive tool (p7zip-full) and hash extraction dependencies (libcompress-raw-lzma-perl for 7z2john)",
+      "Always locate and use built-in wordlists from tools like John before creating custom ones",
+      "Run John with the largest available wordlist first; only fallback to small custom lists if time constraints allow",
+      "After cracking, use the discovered password to extract the archive and read the contents",
+      "Write the extracted content to the required solution file path"
+    ],
+    "workflow": [
+      "install_archive_tool_and_dependencies",
+      "list_archive_contents",
+      "extract_hash_using_dedicated_script",
+      "locate_built_in_wordlists_in_tool_directories",
+      "run_john_with_built_in_wordlist",
+      "check_cracked_password_output",
+      "extract_archive_using_found_password",
+      "read_and_write_solution_content_to_target_file"
+    ],
+    "example": {
+      "situation": "Found /app/secrets.7z protected by unknown password, need to extract secret_file.txt and write content to /app/solution.txt.",
+      "steps": [
+        "Install p7zip-full, libcompress-raw-lzma-perl",
+        "List archive: 7z l /app/secrets.7z",
+        "Extract hash: cd /app && perl john/run/7z2john.pl secrets.7z > hash.txt",
+        "Find wordlists: find /app -name 'password.lst'",
+        "Run John with wordlist: john/run/john --wordlist=john/run/password.lst hash.txt",
+        "Get password from output (e.g., '1998')",
+        "Extract: 7z x secrets.7z -p1998 -y",
+        "Read content and write to /app/solution.txt"
+      ]
+    },
+    "failure_cases_prevented": [
+      "using_a_custom_short_wordlist_that_misses_the_password",
+      "forgetting_to_install_hash_extraction_dependencies",
+      "trying_manual_brute_force_with_common_passwords_instead_of_wordlist",
+      "extracting_archive_with_wrong_password_and_ignoring_errors",
+      "not_checking_tool_directories_for_existing_wordlists"
+    ],
+    "source": {
+      "task_id": "crack-7z-hash",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/crack-7z-hash/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/crack-7z-hash/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/crack-7z-hash/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/crack-7z-hash/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": true,
+      "trajectory_diagnosis": "- The agent successfully cracked the 7z archive password by first installing required tools (p7zip-full, libcompress-raw-lzma-perl) then using John the Ripper with its built-in password.lst wordlist after a failed attempt with a custom short wordlist. - The planner correctly decomposed the task into exploration/cracking and verification subtasks, and the sub-agent systematically executed each step, including extracting the hash via 7z2john.pl. - The solution file `/app/solution.txt` was created with the correct content \"honeybear\" and properly verified by the second subtask (file existence, exact content, byte count). - Verifier tests passed confirming both the solution file exists and contains the expected content, leading to full reward.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Output Verification against Specification",
+    "level": "subtask",
+    "description": "Verify that a generated solution file exactly matches the required output by checking file existence, content string, byte count, and any whitespace constraints before submission.",
+    "application_scenarios": [
+      "After creating a solution file from extracted archive contents",
+      "Before calling submit to confirm the final artifact meets requirements",
+      "When the task spec expects a specific string with no extra whitespace",
+      "Anytime file content must be validated programmatically before final answer"
+    ],
+    "execution_principles": [
+      "Always run cat on the solution file to see the exact content",
+      "Compare output against the expected string character-by-character (including trailing newline)",
+      "Use wc -c to check file size – often reveals extra whitespace or missing newline",
+      "Include ls -la to confirm file ownership and modification time",
+      "If a newline is allowed, verify the byte count equals (content length + 1)",
+      "Take note of any echo statements that might add unintended newlines or spaces",
+      "Do not rely solely on self-reported success; use multiple verification commands"
+    ],
+    "workflow": [
+      "run_cat_on_solution_file",
+      "print_delimiter_and_byte_count_with_wc_c",
+      "confirm_file_metadata_with_ls_la",
+      "compare_observed_content_with_expected_string",
+      "check_byte_count_against_expected_length_including_newline",
+      "report_discrepancies_and_fix_if_needed"
+    ],
+    "example": {
+      "situation": "After writing 'honeybear' to /app/solution.txt, need to verify it contains exactly 'honeybear' (no extra spaces or newlines).",
+      "steps": [
+        "cat /app/solution.txt && echo \"---\" && wc -c /app/solution.txt && ls -la /app/solution.txt",
+        "Observe output: 'honeybear' then '---' then '10 /app/solution.txt'",
+        "Interpret: content is 'honeybear' (9 chars) plus newline = 10 bytes. Matches spec.",
+        "If byte count had been 11, there would be extra whitespace; if 9, missing newline.",
+        "Proceed to submit only after all checks pass."
+      ]
+    },
+    "failure_cases_prevented": [
+      "submitting_a_file_with_wrong_or_truncated_content",
+      "missing_required_newline_character",
+      "including_extra_whitespace_or_invisible_characters",
+      "assuming_content_is_correct_without_verification",
+      "relying_on_a_single_cat_without_byte_count_check"
+    ],
+    "source": {
+      "task_id": "crack-7z-hash",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/crack-7z-hash/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/crack-7z-hash/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/crack-7z-hash/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/crack-7z-hash/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": true,
+      "trajectory_diagnosis": "- The agent successfully cracked the 7z archive password by first installing required tools (p7zip-full, libcompress-raw-lzma-perl) then using John the Ripper with its built-in password.lst wordlist after a failed attempt with a custom short wordlist. - The planner correctly decomposed the task into exploration/cracking and verification subtasks, and the sub-agent systematically executed each step, including extracting the hash via 7z2john.pl. - The solution file `/app/solution.txt` was created with the correct content \"honeybear\" and properly verified by the second subtask (file existence, exact content, byte count). - Verifier tests passed confirming both the solution file exists and contains the expected content, leading to full reward.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Implement Constrained Numerical Optimization with Parametric Distribution and Verification",
+    "level": "subtask",
+    "description": "Set up and solve a system of nonlinear equations to find a probability distribution satisfying multiple KL divergence constraints by choosing a parametric form (e.g., multi-level piecewise-constant), using root-finding or minimization with transformed variables to enforce hard constraints, and then thoroughly verifying all criteria before saving.",
+    "application_scenarios": [
+      "Custom probability distribution construction with exact divergence requirements",
+      "Any task where an analytical solution is infeasible but a parameterized family is reasonable",
+      "Numerical optimization with equality constraints (sum-to-one, target KL values) that can be expressed as equations",
+      "Tasks requiring high-precision floating point results (e.g., tolerance ≤ 0.001 on large arrays)",
+      "Problems involving symmetric or asymmetric KL constraints between two distributions"
+    ],
+    "execution_principles": [
+      "Choose a parametric form that automatically satisfies the sum-to-one constraint (e.g., use variables x, y, m and derive third via equation).",
+      "Apply suitable transformations (log, sigmoid, exp) to enforce bounds like x > 1, 0 < y < 1, 0 < m < V.",
+      "Use scipy.optimize.root with method='hybr' for exactly determined systems; prefer analytical Jacobians if feasible.",
+      "Always validate the solution by computing KL divergences directly on the full constructed array, not just the parameters.",
+      "Run verification checks on the saved file: reload it, recompute sum, min, max, and both KLs with high precision.",
+      "If initial guesses fail, systematically vary them and try multiple starting points (grid search over transformed space).",
+      "Handle integer constraints (e.g., number of tokens) by rounding after continuous optimization and re-solving for the remaining parameters."
+    ],
+    "workflow": [
+      "define_parametric_form",
+      "set_up_constraint_equations",
+      "apply_bounds_via_transformations",
+      "solve_using_root_or_minimize_with_multi_start",
+      "build_full_distribution_array",
+      "compute_and_check_kls_and_constraints",
+      "if_needed_refine_with_integer_rounding",
+      "save_and_verify_from_disk"
+    ],
+    "example": {
+      "situation": "Need to create a distribution over 150,000 tokens with forward and backward KL both exactly 10.0 from uniform. The two-value approach failed to converge. You suspect a three-level piecewise-constant distribution could work.",
+      "steps": [
+        "Decide on number of levels: n_hot=2, n_warm=28, n_cold=150000-2-28.",
+        "Define variables x, y for multipliers (probability * V), derive z = (V - n1*x - n_warm*y) / n_cold to enforce sum-to-one.",
+        "Write equations for forward KL and backward KL as functions of x,y.",
+        "Call scipy.optimize.root(equations, [56203, 1342], method='hybr') to solve.",
+        "Extract solution, compute z, build the full array with probabilities p_hot = x/V, p_warm = y/V, p_cold = z/V.",
+        "Compute actual sums and both KLs; verify they match target within 0.001.",
+        "Save array to /app/dist.npy and reload to double-check all checks pass."
+      ]
+    },
+    "failure_cases_prevented": [
+      "saving_unverified_solution_without_reloading_from_disk",
+      "using_unbounded_optimization_that_violates_positive_probability",
+      "insufficient_accuracy_due_to_rounding_before_solving",
+      "not_trying_alternative_parameterizations_when_first_fails",
+      "forgetting_to_check_sum_to_one_after_constructing_array"
+    ],
+    "source": {
+      "task_id": "distribution-search",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/distribution-search/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/distribution-search/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/distribution-search/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/distribution-search/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": true,
+      "trajectory_diagnosis": "- First attempt failed because the two-value parametric optimization did not converge to the required tolerance; the subagent exhausted its 20-step limit without finalizing or switching strategies, leaving a near-miss solution (forward KL 9.9716, backward KL 10.03). - Second attempt succeeded by using a three-value distribution with manually chosen integer token counts (2 hot, 28 warm, 149970 cold) and solving with scipy.optimize.root, achieving forward KL 10.000000000000 and backward KL 9.999999999980. - The planner provided explicit code skeletons and multiple initial guesses, which the subagent adapted effectively, and the final verification step (reloading the saved file and checking all constraints) matched the verifier's pass criteria. - All 4 verifier tests (file existence, shape, validity, KL divergences) passed, confirming the final distribution meets all requirements exactly within tolerance.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Iterative Problem-Solving with Step Budget and Fallback Strategies",
+    "level": "subtask",
+    "description": "When a numerical approach is not converging or steps are running out, systematically detect stagnation, switch to a different mathematical formulation, and use a structured fallback plan that includes multiple initial guesses, intermediate verification, and early exit on success to avoid exhausting the step limit.",
+    "application_scenarios": [
+      "Tasks with a hard step limit (e.g., 20 Docker commands) that require efficient iteration",
+      "Optimization problems where the objective may have multiple local minima or no exact solution in the chosen parameterization",
+      "Any situation where the first approach (e.g., two-value distribution) produces near-miss results but not within tolerance",
+      "Shell-based Python tasks where running long scripts consumes steps without feedback",
+      "Tasks where manual tuning of hyperparameters (initial guesses, solvers) is needed to find a valid solution"
+    ],
+    "execution_principles": [
+      "Define a clear deadline: after a fixed number of attempts or steps without improvement, switch to an alternative method.",
+      "Print intermediate metrics (loss, parameter values, current KL errors) every few steps to detect stagnation.",
+      "Maintain a repertoire of alternative parameterizations (two-value, three-value, softmax, mixture) and try them in order.",
+      "Use multiple random or grid-based starting points for each parameterization to avoid missing solutions.",
+      "When close but not exact, try to refine by fixing one parameter (e.g., integer token count) and re-optimizing the rest.",
+      "Save best-so-far candidate and continue searching; do not overwrite until a better one is found.",
+      "Include a verification command immediately after saving to confirm from disk; if it fails, continue the search."
+    ],
+    "workflow": [
+      "select_initial_parametric_form",
+      "run_optimization_with_verbose_output",
+      "evaluate_current_error_against_tolerance",
+      "if_not_converged_or_steps_remain_low_switch_to_fallback_formulation",
+      "perform_validation_on_best_candidate",
+      "save_and_disk_verify",
+      "if_validation_fails_restore_previous_best_and_retry_alternative"
+    ],
+    "example": {
+      "situation": "You are running a script that tries to solve for a two-value distribution but after 10 steps the KL errors are still above 0.1 and the step count is already at 15 out of 20. The loss function is not decreasing further.",
+      "steps": [
+        "Stop the current script and print the best parameters found so far along with the errors.",
+        "Switch to a three-value distribution approach, which offers more degrees of freedom.",
+        "Prepare a new script that uses scipy.optimize.root with a fixed integer token split (e.g., 2 hot, 28 warm) and a reasonable initial guess from the previous best.",
+        "Run the new script, output each iteration step, and check if errors drop below 0.001.",
+        "If successful, save the distribution and immediately run a verification script that reloads the .npy file and recomputes all checks.",
+        "If verification passes, submit; otherwise, continue iterating with different integer splits or multiple starting guesses until the step limit."
+      ]
+    },
+    "failure_cases_prevented": [
+      "running_out_of_steps_on_a_single_stuck_approach",
+      "overwriting_a_good_solution_with_a_worse_one",
+      "saving_without_reloading_and_verifying_from_disk",
+      "not_monitoring_intermediate_progress_to_detect_stagnation",
+      "failing_to_switch_methods_when_current_one_plateaus",
+      "ignoring_integer_nature_of_token_counts_after_continuous_optimization"
+    ],
+    "source": {
+      "task_id": "distribution-search",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/distribution-search/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/distribution-search/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/distribution-search/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/distribution-search/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": true,
+      "trajectory_diagnosis": "- First attempt failed because the two-value parametric optimization did not converge to the required tolerance; the subagent exhausted its 20-step limit without finalizing or switching strategies, leaving a near-miss solution (forward KL 9.9716, backward KL 10.03). - Second attempt succeeded by using a three-value distribution with manually chosen integer token counts (2 hot, 28 warm, 149970 cold) and solving with scipy.optimize.root, achieving forward KL 10.000000000000 and backward KL 9.999999999980. - The planner provided explicit code skeletons and multiple initial guesses, which the subagent adapted effectively, and the final verification step (reloading the saved file and checking all constraints) matched the verifier's pass criteria. - All 4 verifier tests (file existence, shape, validity, KL divergences) passed, confirming the final distribution meets all requirements exactly within tolerance.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Primer Design Verification Protocol",
+    "level": "subtask",
+    "description": "Before submitting a primer design for site-directed mutagenesis, run an automated verification script that checks all critical constraints: the insertion is the only difference, annealing regions match the template, Tm values are within range, Tm difference is ≤5°C, lengths are 15-45 bp, and the design is back-to-back.",
+    "application_scenarios": [
+      "Designing primers for Q5 site-directed mutagenesis to insert a fragment",
+      "Verifying primers for other mutagenesis methods (e.g., inverse PCR, Gibson assembly)",
+      "Any task requiring primer pair validation before writing output FASTA file",
+      "Multi-round verification after `oligotm` Tm computation to catch off-by-one or wrong parameters"
+    ],
+    "execution_principles": [
+      "Always confirm the insertion is the sole difference between input and output sequences using string slicing or alignment",
+      "Verify forward primer annealing region exactly matches template right after the insertion site (or before for reverse)",
+      "Compute Tm using `oligotm` with the correct flags: -tp 1 -sc 1 -mv 50 -dv 2 -n 0.8 -d 500",
+      "Check both annealing Tm are within [58, 72]°C and their difference ≤5°C",
+      "Ensure annealing lengths are between 15 and 45 bp",
+      "Confirm the reverse complement of the template region equals the reverse primer sequence",
+      "Read back the written FASTA file to ensure correct header names and no trailing whitespace"
+    ],
+    "workflow": [
+      "read_input_and_output_from_temp_files",
+      "align_sequences_by_comparing_prefix_suffix_after_removing_insertion",
+      "extract_insertion_sequence_and_flanking_regions",
+      "compute_reverse_complement_of_pre_insertion_region",
+      "compute_tm_for_forward_annealing_and_reverse_primer_using_oligotm",
+      "validate_tm_range_and_difference",
+      "validate_annealing_lengths",
+      "print_all_checks_and_confirm_back_to_back_design"
+    ],
+    "example": {
+      "situation": "A previous delegate wrote a primer pair to /app/primers.fasta, but you need to be sure it meets all QA criteria before submitting.",
+      "steps": [
+        "Run Python script that reads /tmp/input.txt and /tmp/output.txt (containing extracted plasmid sequences)",
+        "Verify that Input[0:213] == Output[0:213] and Input[213:] == Output[252:] (removing the 39bp insertion)",
+        "Compute reverse complement of Input[183:213] and confirm it matches the reverse primer sequence",
+        "Call `oligotm` with flags on forward annealing region and reverse primer, capture Tm values",
+        "Check Tm in [58,72] and difference ≤5°C, lengths in [15,45], then output PASS or FAIL"
+      ]
+    },
+    "failure_cases_prevented": [
+      "submitting_primer_with_tm_outside_acceptable_range",
+      "submitting_primer_pair_with_excessive_tm_difference",
+      "annealing_region_offset_by_one_base_due_to_wrong_insertion_boundary",
+      "using_incorrect_overhang_sequence_inside_forward_primer",
+      "forgetting_to_verify_the_reverse_primer_binds_to_the_correct_strand"
+    ],
+    "source": {
+      "task_id": "dna-insert",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/dna-insert/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/dna-insert/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/dna-insert/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/dna-insert/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": true,
+      "trajectory_diagnosis": "- The agent succeeded by first locating and reading the FASTA file, then using Python to parse sequences and identify the single 39 bp insertion at position 213. - Primer design used `oligotm` with required flags, and primers were written to `/app/primers.fasta` with correct back-to-back design. - A thorough verification script was executed to confirm insertion uniqueness, primer annealing regions, Tm values, lengths, and file contents, catching no issues. - The final verifier test (`test_primers`) passed, confirming the output file met all task specifications. - The trajectory avoided common pitfalls by not relying on initial partial reads and by validating all constraints programmatically before submission.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "FASTA Sequence Parsing and Difference Analysis Using Python",
+    "level": "subtask",
+    "description": "When given a multi‑sequence FASTA file, use Python to robustly parse the file, extract each sequence into a dictionary, and then compare two sequences to identify all differences (insertions, deletions, substitutions) by aligning them with a known reference (e.g., input vs output plasmid).",
+    "application_scenarios": [
+      "Comparing two plasmid sequences to locate an inserted fragment, deletion, or point mutation",
+      "Parsing FASTA files where simple `cat` or `grep` fails due to embedded newlines or non‑standard formatting",
+      "Preparing sequence data for downstream primer design or assembly verification",
+      "Automatically computing the exact coordinates and length of a mutation for subsequent tool calls"
+    ],
+    "execution_principles": [
+      "Do not rely on `cat` or `head` to display FASTA content; always use Python to read the whole file and split by header lines (starting with '>')",
+      "Strip newline and whitespace from each sequence line and concatenate to form a single contiguous string per entry",
+      "Store sequences in a dictionary keyed by header (removing the '>' prefix) for easy lookup",
+      "When comparing input and output, first check if the length difference matches the expected insertion size and if the sequences are identical after shifting by that size",
+      "Use Python string slicing to isolate the insertion region (output[ insertion_start : insertion_end ]) and flanking regions",
+      "If multiple differences exist, report each offset with the differing nucleotides to help refine primer design"
+    ],
+    "workflow": [
+      "open_fasta_file_with_python_and_read_all",
+      "split_content_by_newline_and_iterate_lines",
+      "group_lines_under_headers_using_a_flag",
+      "store_each_header_and_its_concatenated_sequence_in_a_dict",
+      "load_input_and_output_sequences_from_dict_by_header_key",
+      "align_sequences_by_comparing_prefix_until_first_mismatch",
+      "compute_offset_and_extract_insertion_or_deletion_region",
+      "print_immediate_flanking_regions_for_primer_design"
+    ],
+    "example": {
+      "situation": "The file /app/sequences.fasta exists but its format is ambiguous (mixed-case, no visible headers when using `cat`) and you need to reliably extract the two plasmids for comparison.",
+      "steps": [
+        "Write a Python script: `with open('/app/sequences.fasta') as f: content = f.read()`",
+        "Split on '\\n', iterate: if line starts with '>', save header; otherwise accumulate sequence",
+        "Create dict: `seqs['input'] = '...'` and `seqs['output'] = '...'`",
+        "Align by checking `inp[:213] == out[:213]` and `inp[213:] == out[252:]` to confirm insertion",
+        "Extract insertion: `out[213:252]` and print to console"
+      ]
+    },
+    "failure_cases_prevented": [
+      "misidentifying_sequence_boundaries_due_to_newline_wrapping",
+      "assuming_fasta_has_a_single_line_per_entry",
+      "failing_to_handle_lowercase_or_mixed_case_bases",
+      "incorrectly_finding_insertion_site_because_of_sequence_similarity",
+      "not_verifying_the_whole_sequence_before_designing_primers"
+    ],
+    "source": {
+      "task_id": "dna-insert",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/dna-insert/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/dna-insert/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/dna-insert/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/dna-insert/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": true,
+      "trajectory_diagnosis": "- The agent succeeded by first locating and reading the FASTA file, then using Python to parse sequences and identify the single 39 bp insertion at position 213. - Primer design used `oligotm` with required flags, and primers were written to `/app/primers.fasta` with correct back-to-back design. - A thorough verification script was executed to confirm insertion uniqueness, primer annealing regions, Tm values, lengths, and file contents, catching no issues. - The final verifier test (`test_primers`) passed, confirming the output file met all task specifications. - The trajectory avoided common pitfalls by not relying on initial partial reads and by validating all constraints programmatically before submission.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Extract memory values from ELF binary PT_LOAD segments",
+    "level": "subtask",
+    "description": "When tasked to extract memory contents from an ELF binary, parse program headers to locate PT_LOAD segments, then extract all 4-byte little-endian integer values that are fully contained within each segment's file-backed range, outputting as JSON with addresses as keys.",
+    "application_scenarios": [
+      "Reverse engineering tasks requiring memory dump of loadable segments",
+      "Binary analysis challenges where raw segment contents must be extracted",
+      "Debugging custom ELF parsers for correctness",
+      "Building automated tools to inspect executable memory layouts"
+    ],
+    "execution_principles": [
+      "Read ELF header at offset 0 to get e_phoff, e_phentsize, e_phnum; support both 32-bit and 64-bit.",
+      "Iterate program headers; skip any that are not PT_LOAD (type == 1).",
+      "For each PT_LOAD, record p_vaddr, p_offset, p_filesz; the valid address range is [p_vaddr, p_vaddr + p_filesz).",
+      "Extract 4-byte words only if the entire word (va..va+3) lies within the segment; skip addresses where va+4 > segment end.",
+      "Read each word as a little-endian unsigned 32-bit integer from the file at position p_offset + (va - p_vaddr).",
+      "Include all values, including zero; do not filter out zeros.",
+      "Output as a JSON object with numeric keys (as strings) and integer values."
+    ],
+    "workflow": [
+      "read_elf_header_to_get_program_header_info",
+      "iterate_over_each_program_header",
+      "select_only_pt_load_segments",
+      "for_each_segment_loop_from_start_address_to_end_minus_4_step_4",
+      "read_4_bytes_from_correct_file_offset_as_uint32_le",
+      "store_address_value_pair_in_result_dictionary",
+      "serialize_dictionary_to_json_and_output"
+    ],
+    "example": {
+      "situation": "Given /app/a.out, a 64-bit ELF with 4 LOAD segments (vaddrs 0x0, 0x1000, 0x2000, 0x3db8).",
+      "steps": [
+        "Read e_phoff=64, e_phentsize=56, e_phnum=13 from ELF header.",
+        "Find PT_LOAD segments among 13 program headers.",
+        "For LOAD at vaddr=0x0: range [0, 0x628), extract 4-byte words at 0,4,8,... until 0x624.",
+        "For LOAD at vaddr=0x1000: range [0x1000, 0x1175), extract words at 0x1000,0x1004,... up to 0x1170.",
+        "For LOAD at vaddr=0x2000: range [0x2000, 0x20f4), extract words.",
+        "For LOAD at vaddr=0x3db8: range [0x3db8, 0x4010), extract words.",
+        "Combine all entries into one JSON object; final count 698 entries."
+      ]
+    },
+    "failure_cases_prevented": [
+      "including_values_that_cross_segment_boundary",
+      "missing_values_due_to_incorrect_endianness",
+      "skipping_zero_values_intended_to_be_kept",
+      "off_by_one_errors_in_address_range_loop",
+      "confusing_file_offset_with_virtual_address"
+    ],
+    "source": {
+      "task_id": "extract-elf",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/extract-elf/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/extract-elf/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/extract-elf/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/extract-elf/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent succeeded by iteratively exploring the ELF binary structure, installing missing tools (file, binutils), and progressively building a correct extract.js script. - Key success factor: Used a Python reference implementation to cross-validate the Node.js parser, catching segment boundary and zero-filtering bugs before final submission. - Verifier output confirms 2/2 tests passed (test_extract_js_exists, test_output_matches_reference), with reward 1.0, indicating the final script produced the expected 698-entry JSON. - No submit_called, but the script output itself was apparently evaluated directly by the test harness; the task was solved without explicit submission.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Cross-validate custom parsing scripts against a reference implementation",
+    "level": "subtask",
+    "description": "After writing a custom parser (e.g., in Node.js), implement the same logic in a second language (e.g., Python) to independently compute reference output, then programmatically compare both results to catch bugs in field offsets, boundaries, endianness, or filtering rules.",
+    "application_scenarios": [
+      "Developing manual binary parsers for ELF, PE, Mach-O, or custom formats",
+      "Verifying correctness of output when ground-truth is unknown",
+      "Debugging discrepancies between expected and actual extracted data",
+      "Teaching or documenting parsing logic by providing a canonical reference"
+    ],
+    "execution_principles": [
+      "Write the reference script with the same parsing logic but in a language with explicit control (e.g., Python struct).",
+      "Run both scripts on the exact same input file.",
+      "Load both outputs into data structures in a single environment (e.g., Python dict for both).",
+      "Compare total number of entries, then check for keys present in one but not the other.",
+      "For common keys, compare values and report mismatches with address, expected, and actual.",
+      "Investigate mismatches by examining the raw binary at that address to determine correct value.",
+      "Fix the primary script and re-validate until zero mismatches and no missing/extra keys."
+    ],
+    "workflow": [
+      "implement_reference_parser_in_second_language",
+      "execute_both_parsers_on_the_same_input",
+      "load_both_outputs_into_hash_maps",
+      "compare_key_sets_for_missing_and_extra_entries",
+      "compare_values_for_common_keys_and_list_mismatches",
+      "analyze_root_cause_of_each_discrepancy",
+      "fix_primary_parser_accordingly",
+      "repeat_until_full_agreement"
+    ],
+    "example": {
+      "situation": "extract.js produced 699 entries but reference produced 698; also some values differed.",
+      "steps": [
+        "Wrote a Python script that manually parses PT_LOAD segments using struct.unpack.",
+        "Ran both on /app/a.out; loaded Node output via json.load and Python output via dict.",
+        "Found Python had 698 keys, JS had 699 – one extra key from reading across a segment boundary.",
+        "Compared values for common keys; discovered JS skipped zeros, causing missing keys.",
+        "Corrected JS to check 'va+4 <= segEnd' and removed zero filter.",
+        "Re-ran; both outputs matched exactly (698 entries, 0 mismatches)."
+      ]
+    },
+    "failure_cases_prevented": [
+      "undetected_off_by_one_boundary_errors",
+      "silent_skipping_of_zero_values_that_should_be_present",
+      "incorrect_field_offset_or_size_in_elf_parsing",
+      "trusting_single_implementation_output_without_verification",
+      "missing_entries_due_to_misaligned_reads"
+    ],
+    "source": {
+      "task_id": "extract-elf",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/extract-elf/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/extract-elf/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/extract-elf/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/extract-elf/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent succeeded by iteratively exploring the ELF binary structure, installing missing tools (file, binutils), and progressively building a correct extract.js script. - Key success factor: Used a Python reference implementation to cross-validate the Node.js parser, catching segment boundary and zero-filtering bugs before final submission. - Verifier output confirms 2/2 tests passed (test_extract_js_exists, test_output_matches_reference), with reward 1.0, indicating the final script produced the expected 698-entry JSON. - No submit_called, but the script output itself was apparently evaluated directly by the test harness; the task was solved without explicit submission.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "robust_financial_extraction_from_ocr",
+    "level": "subtask",
+    "description": "Extract total_amount and vat_amount from OCR text of invoices, handling diverse number formats (thousand separators as spaces or commas, decimal commas) and varying layout positions.",
+    "application_scenarios": [
+      "Processing scanned invoices with variable formatting",
+      "Extracting totals from OCR output in automated document workflows",
+      "Handling European number notation (space as thousand separator, comma as decimal)",
+      "Parsing financial documents from multiple sources",
+      "Generating structured CSV summaries from OCR text"
+    ],
+    "execution_principles": [
+      "Always normalize OCR text numbers before parsing: remove spaces between digits, replace comma decimal with period, then convert to float.",
+      "Search for known keywords like 'Total', 'Gross worth', 'Net worth', 'VAT', 'Amount due', 'TotalPrice' in the OCR text, preferring total over subtotal.",
+      "When multiple totals appear, choose the highest likely final total (e.g., 'Gross worth' > 'Net worth' for total_amount, 'VAT' line for vat_amount).",
+      "If vat_amount is not explicitly present, set to 0.0 and note it.",
+      "Use regex patterns that allow optional spaces and various currency symbols before numbers.",
+      "Validate extracted amounts by cross-checking with multiple OCR lines and expected arithmetic (e.g., Gross ≈ Net + VAT)."
+    ],
+    "workflow": [
+      "install_dependencies",
+      "perform_ocr_on_all_invoices_and_save_texts",
+      "iterate_over_saved_texts",
+      "apply_normalized_number_extraction_per_invoice",
+      "populate_summary_csv_with_filenames_and_amounts",
+      "add_total_row_to_csv",
+      "verify_extracted_values_by_spot_checking_ocr_texts"
+    ],
+    "example": {
+      "situation": "OCR of an invoice shows 'Net worth 6 236,77' and 'Gross worth 6 860,45' and 'VAT 623,68'. Need to extract total_amount=6860.45 and vat_amount=623.68.",
+      "steps": [
+        "Remove spaces and replace comma decimal: '6 236.77' -> 6236.77, '6 860.45' -> 6860.45, '623.68' -> 623.68",
+        "Identify 'Gross worth' as total_amount, 'VAT' as vat_amount",
+        "Extract values using regex: r'Gross\\s*worth\\s*\\$?\\s*([\\d\\s,\\.]+)'",
+        "Parse extracted string with normalization",
+        "Enter into CSV"
+      ]
+    },
+    "failure_cases_prevented": [
+      "misreading_thousand_separators_as_small_numbers",
+      "confusing_net_vs_gross_totals",
+      "missing_vat_when_not_explicitly_labeled",
+      "incorrect_decimal_parsing_from_ocr",
+      "failing_to_handle_multiple_currency_formats"
+    ],
+    "source": {
+      "task_id": "financial-document-processor",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/financial-document-processor/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/financial-document-processor/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/financial-document-processor/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/financial-document-processor/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The task succeeded (verifier passed 7/7) due to systematic OCR pipeline, iterative inspection, and correction of European number formatting (spaces as thousand separators). - Initial extraction attempts failed (e.g., \"6 236.77\" parsed as 6.0) because the agent did not preprocess OCR numbers. - The agent saved full OCR text to files and read them in separate commands to bypass terminal truncation, enabling complete understanding of layout. - Final extraction correctly identified total_amount and vat_amount for all 10 invoices, producing a valid summary.csv with totals row. - Planner delegation allowed the sub-agent to refine extraction logic based on full OCR text inspection, avoiding repeated mistakes.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "systematic_ocr_pipeline_with_truncation_mitigation",
+    "level": "subtask",
+    "description": "Perform OCR on multiple files and inspect full text outputs despite terminal truncation by saving OCR results to files, then reading them in separate commands or in chunks.",
+    "application_scenarios": [
+      "Processing many documents in a single Docker container with limited output buffer",
+      "Debugging OCR extraction by examining complete raw text",
+      "Automating document classification when outputs are lengthy",
+      "Iterative refinement of extraction logic requiring full context",
+      "Verification of data accuracy against source OCR text"
+    ],
+    "execution_principles": [
+      "Always save OCR output for each file into separate files in a temporary directory (e.g., /tmp/ocr_texts/).",
+      "Use a Python script to write OCR text to files and print file list; do not rely on terminal output for full text.",
+      "To view a file's content, use 'cat' or 'head -n N' with N high enough, or split into multiple commands for long files.",
+      "If terminal output is truncated, read files individually using separate tool calls to avoid concatenation overflow.",
+      "After extraction, verify by reading key OCR texts and comparing with extracted values.",
+      "For non-invoice files (e.g., other documents), confirm no OCR text exists to support classification."
+    ],
+    "workflow": [
+      "install_ocr_dependencies",
+      "create_output_directory_for_ocr_texts",
+      "run_python_script_that_loops_over_files_and_saves_ocr_text",
+      "inspect_ocr_texts_by_reading_saved_files_using_separate_cat_commands",
+      "extract_financial_values_using_first_skill",
+      "cross_check_extracted_values_against_full_ocr_texts",
+      "adust_extraction_logic_if_discrepancies_found"
+    ],
+    "example": {
+      "situation": "Need to OCR 10 invoice images and extract totals, but the terminal output for each OCR is long and gets truncated when printed all at once.",
+      "steps": [
+        "Install tesseract, poppler, pytesseract, pdf2image, Pillow",
+        "Create /tmp/ocr_texts/ directory",
+        "Write Python script: for each file, convert to image, OCR, write to /tmp/ocr_texts/<filename>.txt, and print just the filename and file path",
+        "List saved files with 'ls /tmp/ocr_texts/'",
+        "Read each file with separate 'cat /tmp/ocr_texts/file1.txt' commands (one per tool call) to get full content",
+        "Based on content, write extraction script using regex that accounts for number formatting",
+        "Generate summary CSV and verify totals by reading key files again"
+      ]
+    },
+    "failure_cases_prevented": [
+      "missing_crucial_lines_due_to_terminal_truncation",
+      "relying_on_incomplete_ocr_output_for_extraction",
+      "wasting_time_rerunning_ocr_to_get_full_text",
+      "incorrect_extraction_due_to_missing_context",
+      "failing_to_verify_extractions_against_full_text"
+    ],
+    "source": {
+      "task_id": "financial-document-processor",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/financial-document-processor/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/financial-document-processor/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/financial-document-processor/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/financial-document-processor/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The task succeeded (verifier passed 7/7) due to systematic OCR pipeline, iterative inspection, and correction of European number formatting (spaces as thousand separators). - Initial extraction attempts failed (e.g., \"6 236.77\" parsed as 6.0) because the agent did not preprocess OCR numbers. - The agent saved full OCR text to files and read them in separate commands to bypass terminal truncation, enabling complete understanding of layout. - Final extraction correctly identified total_amount and vat_amount for all 10 invoices, producing a valid summary.csv with totals row. - Planner delegation allowed the sub-agent to refine extraction logic based on full OCR text inspection, avoiding repeated mistakes.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "recover_lost_commits_from_detached_head",
+    "level": "subtask",
+    "description": "When a user reports lost changes in a Git repository, use the reflog to locate commits made in a detached HEAD state, then cherry-pick them onto the current branch and resolve any merge conflicts.",
+    "application_scenarios": [
+      "User committed changes while in detached HEAD state and then checked out another branch",
+      "Lost commits after a hard reset or branch deletion that still exist in reflog",
+      "Cherry-picking commits from a temporary or unnamed branch",
+      "Recovering work from a previous checkout that was not saved to any branch",
+      "Resolving merge conflicts during cherry-pick when the target branch has diverged"
+    ],
+    "execution_principles": [
+      "Always inspect the reflog first (git reflog -20) before assuming data is lost",
+      "Verify the content of the suspected lost commit using git show and --stat",
+      "Check if the commit is already reachable from any branch (git branch --contains <commit>)",
+      "Use git cherry-pick to apply the commit onto the current branch",
+      "If a merge conflict occurs, examine the conflicted file, decide which version to keep, and finish the cherry-pick with --continue",
+      "After completion, run git log and git diff HEAD~1 to confirm the changes are applied"
+    ],
+    "workflow": [
+      "check_current_reflog",
+      "identify_lost_commit_hash",
+      "inspect_lost_commit_changes",
+      "cherry_pick_lost_commit",
+      "resolve_merge_conflicts_if_needed",
+      "finish_cherry_pick",
+      "verify_changes_on_current_branch"
+    ],
+    "example": {
+      "situation": "User made a commit 'Add feature' while in detached HEAD, then checked out master. The commit disappeared from branches but exists in reflog at abc1234.",
+      "steps": [
+        "git reflog -20",
+        "git show abc1234 --stat",
+        "git cherry-pick abc1234",
+        "if conflict: edit conflicting file, git add <file>, git cherry-pick --continue",
+        "git log --oneline -3",
+        "git diff HEAD~1 --stat"
+      ]
+    },
+    "failure_cases_prevented": [
+      "assuming_data_is_permanently_lost",
+      "overwriting_committed_changes_with_incomplete_recovery",
+      "leaving_conflict_markers_in_files",
+      "forgetting_to_verify_final_state",
+      "applying_commit_to_wrong_branch"
+    ],
+    "source": {
+      "task_id": "fix-git",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/fix-git/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/fix-git/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/fix-git/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/fix-git/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": true,
+      "trajectory_diagnosis": "- Successfully recovered lost commit from detached HEAD by using reflog to identify the missing commit (650dba4) and cherry-picking it onto master. - Merge conflict in `_includes/about.md` was correctly resolved by selecting the newer lost commit's version (Stanford postdoc affiliation). - A second verification subtask confirmed the repository state: clean working tree, correct commit at HEAD, and both affected files passed pytest verifier tests (test_about_file and test_layout_file). - The planner decomposed the task into exploration, recovery, and verification, which allowed systematic handling without wasted attempts. - Verifier output (2 passed, 0 failed) provides concrete evidence that the final repo state matches expected changes.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "verify_git_repository_state_after_operation",
+    "level": "subtask",
+    "description": "After any Git operation that modifies history (cherry-pick, merge, rebase, reset), systematically verify the repository state using git status, git log, git diff, and file content checks to confirm the expected outcome.",
+    "application_scenarios": [
+      "After recovering lost commits via cherry-pick or reflog",
+      "After merging branches or resolving conflicts",
+      "After rebasing or amending commits",
+      "After resetting to a previous commit",
+      "After any manual file edits followed by git add",
+      "Before submitting a task to ensure all changes are correct"
+    ],
+    "execution_principles": [
+      "Always verify that git status shows a clean working tree on the expected branch",
+      "Check git log --oneline to confirm the expected commit is at the tip",
+      "Use git diff HEAD~1 --stat to list all changed files in the most recent commit",
+      "Inspect the actual content of key files (cat) to ensure they contain the intended changes",
+      "Run verifier tests if available to programmatically validate outputs",
+      "If any discrepancy is found, revert and re-investigate before proceeding"
+    ],
+    "workflow": [
+      "navigate_to_repository",
+      "run_git_status",
+      "run_git_log_oneline_with_limit",
+      "run_git_diff_stat_against_parent",
+      "cat_affected_files",
+      "compare_actual_vs_expected_content",
+      "run_project_specific_tests_if_available"
+    ],
+    "example": {
+      "situation": "After cherry-picking a lost commit onto master, you need to confirm the recovery is complete.",
+      "steps": [
+        "cd /path/to/repo",
+        "git status",
+        "git log --oneline -5",
+        "git diff HEAD~1 --stat",
+        "cat _includes/about.md",
+        "git diff HEAD~1 -- _includes/about.md"
+      ]
+    },
+    "failure_cases_prevented": [
+      "incomplete_recovery_not_detected",
+      "unnoticed_conflict_markers",
+      "incorrect_file_content_after_operation",
+      "missing_changes_in_expected_files",
+      "failure_to_run_verifier_before_submit"
+    ],
+    "source": {
+      "task_id": "fix-git",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/fix-git/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/fix-git/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/fix-git/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/fix-git/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": true,
+      "trajectory_diagnosis": "- Successfully recovered lost commit from detached HEAD by using reflog to identify the missing commit (650dba4) and cherry-picking it onto master. - Merge conflict in `_includes/about.md` was correctly resolved by selecting the newer lost commit's version (Stanford postdoc affiliation). - A second verification subtask confirmed the repository state: clean working tree, correct commit at HEAD, and both affected files passed pytest verifier tests (test_about_file and test_layout_file). - The planner decomposed the task into exploration, recovery, and verification, which allowed systematic handling without wasted attempts. - Verifier output (2 passed, 0 failed) provides concrete evidence that the final repo state matches expected changes.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "pre_implementation_environment_exploration",
+    "level": "subtask",
+    "description": "Before writing any new code, systematically explore the target directory to understand existing interfaces, file structure, and required dependencies. This prevents reimplementation or missing abstract methods.",
+    "application_scenarios": [
+      "Implementing a class that must inherit from an existing abstract base class",
+      "Writing code that depends on third-party libraries not yet installed",
+      "Modifying an existing codebase where the interface is in a separate file",
+      "Setting up a new module that must follow a predefined API contract",
+      "Any task where the agent is asked to create a file in an unfamiliar directory"
+    ],
+    "execution_principles": [
+      "Always run `ls -la` and `find` in the working directory to list all relevant files",
+      "Use `cat` or `grep` to inspect any files that define the required interface or base class",
+      "Check for missing dependencies by attempting to import the library in a one-liner or checking `pip list`",
+      "Install missing dependencies immediately using `pip install` before writing the implementation",
+      "If a test file exists, read it to understand the expected API surface before coding",
+      "Record the full content of the base class to ensure correct method signatures and docstrings"
+    ],
+    "workflow": [
+      "explore_directory_with_ls_and_find",
+      "inspect_relevant_files_with_cat",
+      "check_dependencies_via_pip_or_python_import",
+      "install_missing_dependencies",
+      "read_any_existing_test_files_for_expected_api",
+      "summarize_findings_and_plan_implementation"
+    ],
+    "example": {
+      "situation": "Given task to implement HeadlessTerminal inheriting from BaseTerminal in /app",
+      "steps": [
+        "Run `ls -la /app/` and `find /app -type f -name '*.py'` to discover base_terminal.py",
+        "Run `cat /app/base_terminal.py` to see the abstract class with send_keystrokes method",
+        "Run `python3 -c 'import pexpect' 2>&1` to find pexpect is missing",
+        "Install pexpect via `pip install pexpect`",
+        "No test file exists, but note the abstract method signatures for implementation",
+        "Plan to create HeadlessTerminal with pexpect.spawn and match the interface exactly"
+      ]
+    },
+    "failure_cases_prevented": [
+      "implementing_missing_abstract_methods",
+      "using_an_uninstalled_library_at_runtime",
+      "overwriting_existing_files_without_reading_them",
+      "misunderstanding_the_required_api_signature",
+      "missing_important_configuration_files_or_startup_scripts",
+      "reimplementing_logic_that_already_exists_in_the_codebase"
+    ],
+    "source": {
+      "task_id": "headless-terminal",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/headless-terminal/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/headless-terminal/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/headless-terminal/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/headless-terminal/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": true,
+      "trajectory_diagnosis": "- The planner successfully decomposed the task into exploration, implementation, and multiple verification rounds, avoiding premature submission. - The sub-agent correctly installed pexpect (a required dependency) before writing the implementation, preventing runtime import errors. - Validation was thorough: the sub-agent ran test scripts covering inheritance, control characters, interactive programs, login shell sourcing, and cleanup, matching all 7 verifier tests. - The verifier test_output.log and ctrf.json confirm all 7 tests passed, with no failures or skipped tests, indicating full functional correctness. - The agent avoided common pitfalls by using `pexpect.spawn` with `--login -i` flags and explicitly handling shell readiness with `echo __HEADLESS_READY__`.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "post_implementation_multi_scenario_verification",
+    "level": "subtask",
+    "description": "After writing the implementation, run a series of targeted test scripts that exercise every aspect of the required behavior, including edge cases like control characters, interactive programs, persistence of state, and clean shutdown.",
+    "application_scenarios": [
+      "Implementing a terminal emulator or any I/O class that must handle special key sequences",
+      "Writing a wrapper around a subprocess or pseudo-terminal that must support interactive use",
+      "Creating a class that requires proper resource cleanup (e.g., close method)",
+      "Implementing a module that must comply with a formal test suite that tests multiple scenarios",
+      "Any implementation where the interface uses a single method but behavior depends on input content"
+    ],
+    "execution_principles": [
+      "Test inheritance and method signature compliance first using `inspect.signature`",
+      "Run a basic non-interactive command and verify the output contains the expected string",
+      "Send control characters (e.g., \\x03 for Ctrl+C, \\x04 for Ctrl+D) and verify the shell recovers",
+      "Test an interactive program (e.g., `cat`) by sending input line by line and using Ctrl+D to end",
+      "Verify that shell state persists between commands (e.g., environment variables or working directory)",
+      "Check that startup files are sourced (e.g., `shopt -q login_shell`) when the shell is launched with --login",
+      "Ensure the close method terminates the process cleanly without leaving zombie processes"
+    ],
+    "workflow": [
+      "test_inheritance_and_method_signature",
+      "test_basic_command_output",
+      "test_control_character_interrupt",
+      "test_interactive_program_with_input_and_eof",
+      "test_shell_state_persistence",
+      "test_startup_file_sourcing",
+      "test_clean_shutdown",
+      "document_each_test_result_and_fix_any_failure"
+    ],
+    "example": {
+      "situation": "After creating HeadlessTerminal, need to verify it passes all 7 pytest cases",
+      "steps": [
+        "Run Python script that checks issubclass and method signature with inspect",
+        "Send 'echo TEST_A\\n' and read output with read_nonblocking to confirm TEST_A appears",
+        "Send 'sleep 10' then quickly send '\\x03' and check prompt returns within timeout",
+        "Start cat, send multiple lines, send Ctrl+D, and verify lines are echoed back",
+        "Send 'cd /tmp && pwd\\n' then another command to confirm directory changed",
+        "Run `shopt -q login_shell && echo LOGIN_OK` inside the terminal to confirm --login flag works",
+        "Call close() and then check process.isalive() returns False",
+        "Fix any failures by adjusting pexpect parameters or timeout values"
+      ]
+    },
+    "failure_cases_prevented": [
+      "missing_inheritance_or_wrong_method_parameters",
+      "not_supporting_control_character_interruption",
+      "unable_to_handle_interactive_programs_that_consume_stdin",
+      "shell_state_not_persisting_between_commands",
+      "startup_files_not_sourced_causing_different_environment",
+      "process_lingering_after_close_causing_resource_leaks"
+    ],
+    "source": {
+      "task_id": "headless-terminal",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/headless-terminal/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/headless-terminal/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/headless-terminal/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/headless-terminal/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": true,
+      "trajectory_diagnosis": "- The planner successfully decomposed the task into exploration, implementation, and multiple verification rounds, avoiding premature submission. - The sub-agent correctly installed pexpect (a required dependency) before writing the implementation, preventing runtime import errors. - Validation was thorough: the sub-agent ran test scripts covering inheritance, control characters, interactive programs, login shell sourcing, and cleanup, matching all 7 verifier tests. - The verifier test_output.log and ctrf.json confirm all 7 tests passed, with no failures or skipped tests, indicating full functional correctness. - The agent avoided common pitfalls by using `pexpect.spawn` with `--login -i` flags and explicitly handling shell readiness with `echo __HEADLESS_READY__`.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Verify and correct gRPC server class name and structure",
+    "level": "subtask",
+    "description": "After generating a gRPC server stub, check that the service implementation class name matches the expected name in the task specification (e.g., 'Server' not 'KVStoreServicer') and adjust the structure accordingly.",
+    "application_scenarios": [
+      "When implementing a gRPC server from a .proto file using grpc_tools",
+      "When the task requires a specific class name for the service implementation",
+      "When regenerating server code after a proto change",
+      "When the submission checks for exact file content (e.g., class X must exist)"
+    ],
+    "execution_principles": [
+      "Compare the class name in server.py against the naming hints in the task description or test files.",
+      "Inspect the generated pb2_grpc.py file to see the servicer base class name (e.g., KVStoreServicer).",
+      "If renaming is needed, preserve the same method signatures and base class inheritance.",
+      "After rewriting, kill any old server processes on the target port before starting the new one.",
+      "Use Python socket bind or fuser to free the port if standard tools are unavailable.",
+      "Validate the new server starts and listens before proceeding."
+    ],
+    "workflow": [
+      "cat the server file to locate the class definition and its base class.",
+      "Verify class name matches task requirement (e.g., must be 'Server').",
+      "If mismatch, rewrite the file using a here-doc cat command, ensuring the new class inherits from the correct pb2_grpc base.",
+      "Kill existing server processes: fuser -k <port>/tcp 2>/dev/null || python3 -c 'free port with socket'.",
+      "Start the updated server in background: cd <workdir> && nohup python3 server.py > server.log 2>&1 &.",
+      "Wait 1–2 seconds and verify with python3 -c 'check port open'.",
+      "Run a quick client test to confirm GetVal/SetVal still work."
+    ],
+    "example": {
+      "situation": "Task requires the gRPC implementation class to be named 'Server', but the initial server.py has 'KVStoreServicer'.",
+      "steps": [
+        "cat -n /app/server.py to see the class line (e.g., class KVStoreServicer(...)).",
+        "Check base class: KVStoreServicer(kv_store_pb2_grpc.KVStoreServicer).",
+        "Rewrite /app/server.py with class Server(kv_store_pb2_grpc.KVStoreServicer) and same methods.",
+        "Run: fuser -k 5328/tcp 2>/dev/null || python3 -c \"import socket; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1); s.bind(('',5328)); s.close()\"",
+        "Start: cd /app && nohup python3 server.py > server.log 2>&1 &",
+        "sleep 1 && python3 -c \"import socket; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1',5328)); s.close(); print('OK')\""
+      ]
+    },
+    "failure_cases_prevented": [
+      "class_name_mismatch_causing_submission_failure",
+      "server_not_restarted_after_code_change",
+      "old_process_still_holding_port",
+      "missing_port_freed_before_new_start"
+    ],
+    "source": {
+      "task_id": "kv-store-grpc",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/kv-store-grpc/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/kv-store-grpc/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/kv-store-grpc/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/kv-store-grpc/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": true,
+      "trajectory_diagnosis": "- The planner correctly decomposed the task into installation, proto generation, server implementation, and verification, and later identified a critical class-name mismatch (KVStoreServicer vs. Server) through file inspection, enabling a targeted fix. - The sub-agent used a portable socket-based check (instead of missing ss/netstat/lsof) to verify the server port, and reran a comprehensive e2e gRPC test after the fix, confirming all 6 test cases passed. - The verifier’s 7/7 test pass (including real server running, protocol handshake, and functionality) confirms the final server works correctly, validating the repair. - Overall success stems from methodical verification, adaptive tool usage when standard system utilities are absent, and proper alignment with task requirements (class name required by submission).",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Validate service availability and functionality using portable Python-based checks",
+    "level": "subtask",
+    "description": "When standard Linux tools (ss, netstat, lsof, ps) are unavailable, use pure-Python socket and gRPC client scripts to check if a server is listening and responding correctly.",
+    "application_scenarios": [
+      "Minimal Docker containers lacking common network diagnostics",
+      "After starting a background service, verifying port binding",
+      "Before running full integration tests, performing a quick connectivity check",
+      "When debugging 'port not found' errors without ps/top",
+      "After modifying or restarting a service, confirming it's operational"
+    ],
+    "execution_principles": [
+      "Always prefer Python's socket module over shell commands for port availability checks.",
+      "Use a short timeout (1–2 seconds) to avoid hanging.",
+      "For gRPC services, create an insecure channel and call a simple RPC to confirm end-to-end functionality.",
+      "Check stdout/stderr of the server log as an alternative indicator of startup errors.",
+      "Combine a socket check with a light gRPC test (SetVal/GetVal) to validate both network connectivity and service logic.",
+      "If the service fails to respond, inspect the server log (cat server.log) for exceptions."
+    ],
+    "workflow": [
+      "Check if port is listening: python3 -c \"import socket; s=socket.socket(); s.settimeout(1); s.connect(('127.0.0.1', <port>)); s.close(); print('OK')\"",
+      "If OK, proceed to gRPC test; if not, read server log and restart.",
+      "Create a one-liner or small script that imports generated pb2 modules, creates a stub, and calls a method.",
+      "Test basic operations: SetVal a key, GetVal that key, GetVal a missing key (expect default).",
+      "Assert the responses match expected values (e.g., integer fields).",
+      "Print pass/fail messages for each subtest.",
+      "Close the channel after testing."
+    ],
+    "example": {
+      "situation": "After starting a gRPC server in a container with no 'ss' or 'netstat', need to verify it's running before submitting.",
+      "steps": [
+        "python3 -c \"import socket; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1',5328)); s.close(); print('Port open')\"",
+        "cd /app && python3 -c \"import grpc, kv_store_pb2, kv_store_pb2_grpc; channel=grpc.insecure_channel('localhost:5328'); stub=kv_store_pb2_grpc.KVStoreStub(channel); resp=stub.SetVal(kv_store_pb2.SetValRequest(key='x',value=1)); assert resp.val==1; resp=stub.GetVal(kv_store_pb2.GetValRequest(key='x'));",
+        "If assertion fails, check server.log with cat /app/server.log."
+      ]
+    },
+    "failure_cases_prevented": [
+      "false_positive_from_dependency_on_unavailable_tools",
+      "timeout_waiting_for_service_that_never_started",
+      "silent_failures_in_service_logic_missed_without_functional_test",
+      "submitting_with_non_functional_service_despite_port_open"
+    ],
+    "source": {
+      "task_id": "kv-store-grpc",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/kv-store-grpc/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/kv-store-grpc/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/kv-store-grpc/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/kv-store-grpc/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": true,
+      "trajectory_diagnosis": "- The planner correctly decomposed the task into installation, proto generation, server implementation, and verification, and later identified a critical class-name mismatch (KVStoreServicer vs. Server) through file inspection, enabling a targeted fix. - The sub-agent used a portable socket-based check (instead of missing ss/netstat/lsof) to verify the server port, and reran a comprehensive e2e gRPC test after the fix, confirming all 6 test cases passed. - The verifier’s 7/7 test pass (including real server running, protocol handshake, and functionality) confirms the final server works correctly, validating the repair. - Overall success stems from methodical verification, adaptive tool usage when standard system utilities are absent, and proper alignment with task requirements (class name required by submission).",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "deploy_c_lapack_helper_for_numerical_speedup",
+    "level": "subtask",
+    "description": "When optimizing a numerical computation (e.g., eigenvalue, linear solve) in Python, create a C shared library that calls LAPACK routines directly, compile it with aggressive optimization flags, and wrap it via ctypes for a drop-in replacement that is faster than NumPy's pure-Python overhead.",
+    "application_scenarios": [
+      "Implementing a faster linear algebra kernel that replaces numpy.linalg functions",
+      "Optimizing small-to-medium matrix operations (2x2 to 10x10) where Python overhead dominates",
+      "Porting Python-only iterative eigenvalue methods to compiled C for speed",
+      "Bridging NumPy arrays with Fortran LAPACK conventions (column-major) in C"
+    ],
+    "execution_principles": [
+      "Check compiler availability (gcc, gfortran) and LAPACK dev packages before writing any C code",
+      "Always convert row-major NumPy arrays to column-major Fortran order when calling LAPACK",
+      "Use -O3 -march=native -shared -fPIC flags to maximize performance",
+      "Link '-lm -lgfortran -llapack -lblas' or install missing packages via apt",
+      "Test with a minimal Python script that compares output against the reference implementation",
+      "Ensure the C function handles edge cases (e.g., 1x1 matrices, zero eigenvectors, complex eigenvalues)"
+    ],
+    "workflow": [
+      "inspect_compilers_and_linear_algebra_libraries",
+      "write_c_source_with_lapack_call_and_memory_management",
+      "compile_shared_library_with_optimization_flags",
+      "create_python_wrapper_using_ctypes_and_numpy_ctypeslib",
+      "run_correctness_tests_against_numpy_reference_on_random_matrices",
+      "benchmark_against_reference_and_verify_speedup",
+      "integrate_into_target_module_replacing_original_function"
+    ],
+    "example": {
+      "situation": "Need to compute dominant eigenpair of 2x2 to 10x10 matrices faster than np.linalg.eig. Python overhead makes iterative power method slower; C+LAPACK provides near-memory speed.",
+      "steps": [
+        "Run `which gcc gfortran && sudo apt-get install -y build-essential gfortran liblapack-dev libblas-dev` to set up environment",
+        "Write /app/eigen_helper.c that calls dgeev_ to compute all eigenvalues, finds the dominant one by magnitude, and returns interleaved complex eigenvector",
+        "Compile with `gcc -O3 -march=native -shared -fPIC -o eigen_helper.so eigen_helper.c -lm -lgfortran -llapack -lblas`",
+        "Write /app/eigen.py that loads the .so, wraps a Python function, handles 1x1 directly, and converts flat double arrays back to complex NumPy arrays",
+        "Test with `python -c 'import numpy as np; from eigen import find_dominant_eigenvalue_and_eigenvector; A=np.random.randn(6,6); val,vec=find_dominant_eigenvalue_and_eigenvector(A); assert np.allclose(A@vec, val*vec)'`",
+        "Run `cd /app && python eval.py` to verify speedup over reference"
+      ]
+    },
+    "failure_cases_prevented": [
+      "pure_python_power_iteration_converges_to_wrong_eigenvalue",
+      "c_file_writes_truncated_due_to_output_format_limits",
+      "row_major_column_major_mismatch_causing_wrong_results",
+      "missing_lapack_or_blas_libraries_causing_link_errors",
+      "no_fallback_for_degenerate_inputs_like_1x1_matrix"
+    ],
+    "source": {
+      "task_id": "largest-eigenval",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/largest-eigenval/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/largest-eigenval/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/largest-eigenval/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/largest-eigenval/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent successfully implemented a faster dominant eigenpair computation using a C shared library with LAPACK's DGEEV, achieving marginal speedup over NumPy's reference across all matrix sizes (2x2 to 10x10). - Verifier output confirms 27/27 tests passed, including eigenpair correctness, dominance, and speedup; all median times were 1-2 µs faster than reference. - Earlier sub-agent attempts failed due to: pure NumPy power iteration converging to wrong eigenvalues, C power iteration file writes being truncated, and a LAPACK DGEEV implementation that initially matched but did not beat reference speed. - The winning approach used a C helper compiled with `-O3 -march=native` and linked against system LAPACK, wrapped via ctypes, combined with a simple 1x1 case and proper row-major to column-major conversion. - No submission was called, but the final implementation passed all verifier tests, indicating the task was solved in-environment without manual submission.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "iterative_numerical_algorithm_selection_with_fallback_testing",
+    "level": "subtask",
+    "description": "When implementing a numerical eigenvalue algorithm, test multiple approaches (power iteration, Rayleigh quotient, analytic 2x2 formula, full LAPACK) on random matrices and select the one that passes both correctness and speed requirements, using a fallback hierarchy that defaults to a reliable (slower) method if faster heuristics fail.",
+    "application_scenarios": [
+      "Developing custom eigenvalue solvers where convergence is not guaranteed for all matrices",
+      "Choosing between iterative vs. direct methods based on matrix size and structure",
+      "Verifying eigenpair correctness with the residual equation Ax = λx",
+      "Benchmarking candidate implementations against a trusted reference (e.g., np.linalg.eig)"
+    ],
+    "execution_principles": [
+      "Always start with a simple pure-NumPy power iteration as baseline, then measure correctness on many random matrices",
+      "If power iteration fails (converges to non-dominant eigenvalue), fall back to Rayleigh quotient iteration or direct LAPACK",
+      "Use random seeds derived from matrix content to avoid degenerate start vectors",
+      "Test on at least 50 random matrices per size and check both residual and dominance (eigenvalue magnitude comparison)",
+      "When speed is critical, prefer compiled C/LAPACK over iterative loops in Python",
+      "Document the fallback logic clearly in code comments so that debugging is easier"
+    ],
+    "workflow": [
+      "implement_pure_numpy_power_iteration_first",
+      "run_correctness_test_against_random_matrices_of_various_sizes",
+      "if_test_fails_switch_to_lapack_direct_method_or_rayleigh_quotient",
+      "measure_speed_and_compare_with_reference",
+      "if_speed_insufficient_compile_c_helper_with_lapack_and_retest",
+      "finalize_implementation_with_conditional_branch_for_small_matrices"
+    ],
+    "example": {
+      "situation": "Attempting to write a fast dominant eigenvalue solver; pure NumPy power iteration fails on 2x2 matrices because start vector is orthogonal to dominant eigenvector.",
+      "steps": [
+        "Write a Python function that uses `np.random.seed(hash(A.tobytes()) % 2**31)` to set deterministic but varied starting vectors",
+        "Run `for size in [2,4,6,8,10]: for _ in range(50): A = np.random.normal(size=(size,size)); val,vec = power_iteration(A); residual = np.linalg.norm(A@vec - val*vec); assert residual < 1e-10`",
+        "Observe that some 2x2 cases fail due to anti-podal eigenvectors; switch to using `np.linalg.eig` directly as fallback for small matrices",
+        "Benchmark the hybrid approach vs. reference and confirm speedup is still achieved on larger sizes",
+        "Document in the function docstring: 'For n<=2 uses analytic formula; for n>2 uses LAPACK via C'"
+      ]
+    },
+    "failure_cases_prevented": [
+      "power_iteration_converges_to_non_dominant_eigenvalue",
+      "no_fallback_for_degenerate_or_small_matrices",
+      "overlooking_complex_eigenvalues_in_real_matrices",
+      "relying_on_single_test_case_instead_of_statistical_validation",
+      "brute_force_approach_without_benchmarking_correctness_first"
+    ],
+    "source": {
+      "task_id": "largest-eigenval",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/largest-eigenval/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/largest-eigenval/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/largest-eigenval/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/largest-eigenval/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent successfully implemented a faster dominant eigenpair computation using a C shared library with LAPACK's DGEEV, achieving marginal speedup over NumPy's reference across all matrix sizes (2x2 to 10x10). - Verifier output confirms 27/27 tests passed, including eigenpair correctness, dominance, and speedup; all median times were 1-2 µs faster than reference. - Earlier sub-agent attempts failed due to: pure NumPy power iteration converging to wrong eigenvalues, C power iteration file writes being truncated, and a LAPACK DGEEV implementation that initially matched but did not beat reference speed. - The winning approach used a C helper compiled with `-O3 -march=native` and linked against system LAPACK, wrapped via ctypes, combined with a simple 1x1 case and proper row-major to column-major conversion. - No submission was called, but the final implementation passed all verifier tests, indicating the task was solved in-environment without manual submission.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Robust R Package Installation with Error Recovery",
+    "level": "subtask",
+    "description": "Install R packages (especially compilation-heavy ones like rstan) in a Docker environment, handling common failures such as lock files, timeouts, and missing system dependencies through retries and cleanup.",
+    "application_scenarios": [
+      "Installing rstan, StanHeaders, or other CRAN packages requiring compilation",
+      "Setting up R environments inside CI/CD or containerized testing",
+      "Any task where apt and R package installation are combined in a single Docker container"
+    ],
+    "execution_principles": [
+      "Always run apt-get update before installing system dependencies to avoid stale package lists.",
+      "Use DEBIAN_FRONTEND=noninteractive to prevent interactive prompts during apt install.",
+      "After a failed R package install, remove residual lock files (e.g., /usr/local/lib/R/site-library/00LOCK-*) before retrying.",
+      "If initial installation times out, fall back to a non-version-specific install and verify the version after installation.",
+      "Always verify installation by loading the library and printing the package version in R.",
+      "Prefer installing system deps that support compilation (g++, cmake, libcurl, etc.) before R packages."
+    ],
+    "workflow": [
+      "update_system_packages",
+      "install_system_dependencies_with_apt",
+      "attempt_r_package_installation",
+      "if_failure_due_to_lock_remove_lock_and_retry",
+      "if_failure_due_to_timeout_fallback_to_generic_install",
+      "verify_installation_by_loading_library_and_checking_version",
+      "if_still_fails_report_error_and_abort"
+    ],
+    "example": {
+      "situation": "Installing rstan version 2.32.7 in a Docker container; the version-specific install timed out and then a lock file prevented the generic install.",
+      "steps": [
+        "Run apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y r-base r-base-dev libcurl4-openssl-dev libssl-dev libxml2-dev pandoc cmake g++",
+        "Attempt: R -e 'install.packages(\"rstan\", version = \"2.32.7\", repos = \"https://cloud.r-project.org/\")' – command timed out.",
+        "Kill any stale dpkg locks: kill $(lsof -t /var/lib/dpkg/lock-frontend) 2>/dev/null; rm -f /var/lib/dpkg/lock*",
+        "Retry with generic version: R -e 'install.packages(\"rstan\", repos = \"https://cloud.r-project.org\")' – failed due to lock file 00LOCK-rstan.",
+        "Remove lock: rm -rf /usr/local/lib/R/site-library/00LOCK-rstan && R -e 'install.packages(\"rstan\", repos = \"https://cloud.r-project.org\")' – success.",
+        "Verify: R -e 'library(rstan); cat(\"RStan version:\", as.character(packageVersion(\"rstan\")), \"\\n\")' – shows 2.32.7."
+      ]
+    },
+    "failure_cases_prevented": [
+      "r_package_installation_interrupted_by_lock_file",
+      "timeout_during_compilation_heavy_package_install",
+      "missing_system_dependencies_causing_compilation_failure",
+      "silent_failure_due_to_unverified_package_version"
+    ],
+    "source": {
+      "task_id": "mcmc-sampling-stan",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/mcmc-sampling-stan/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/mcmc-sampling-stan/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/mcmc-sampling-stan/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/mcmc-sampling-stan/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": true,
+      "trajectory_diagnosis": "- The planner successfully decomposed the task into two distinct subtasks: environment setup + model execution, and verification, with the second subtask dedicated to checking file existence and content. - The sub-agent demonstrated effective error recovery: after rstan installation timed out, it killed stale locks and retried, resulting in successful installation (verified via R command). - All 6 verifier tests passed (test_rstan_package_installed, test_hierarchical_model_implemented, test_r_script_created_and_used_rstan, test_posterior_alpha_estimation, test_posterior_beta_estimation, test_stan_model_sampling), confirming output completeness and correctness. - The separate verification subtask (attempt 2) caught potential issues early by explicitly listing files and printing contents, which reinforced confidence before final submission. - The agent handled a modeling warning (divergent transitions) without treating it as a failure, focusing on producing the required output files as specified.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Post-Execution Verification Subtask",
+    "level": "subtask",
+    "description": "After the main work (e.g., model fitting, data processing) is complete, run a separate verification subtask that checks all required output files exist, have the correct content, and match expected formats.",
+    "application_scenarios": [
+      "Tasks with multiple output files that must meet specific criteria (e.g., numeric values, model code, R scripts)",
+      "MCMC or Bayesian analysis tasks where posterior summaries must be written to disk",
+      "Any task where the verifier will later inspect file existence and content",
+      "Workflows that benefit from a clean separation of execution and validation"
+    ],
+    "execution_principles": [
+      "Use ls -la to confirm each required output file exists and has non-zero size.",
+      "Cat the content of critical output files to verify they contain the expected value format (e.g., numeric string, not NA or error).",
+      "For model files (e.g., .stan), use head and tail to quickly check the key model structure (data, parameters, model block).",
+      "For scripts (e.g., analysis.R), inspect the first 10-20 lines to confirm correct libraries, parameters, and seed.",
+      "Report all outputs verbatim so the planner can confirm correctness without re-execution.",
+      "Perform verification in a separate subtask to isolate concerns and allow the planner to approve before submission."
+    ],
+    "workflow": [
+      "list_all_required_output_files_with_ls_la",
+      "cat_each_output_file_and_check_content",
+      "inspect_model_or_code_files_with_head_and_tail",
+      "confirm_numeric_outputs_are_not_empty_or_na",
+      "summarize_findings_in_a_structured_message",
+      "if_any_file_missing_or_wrong_report_error_and_do_not_submit"
+    ],
+    "example": {
+      "situation": "After fitting a hierarchical Beta-Binomial model with rstan, the task requires four output files: posterior_alpha_mean.txt, posterior_beta_mean.txt, hierarchical_model.stan, analysis.R.",
+      "steps": [
+        "Run: ls -la /app/posterior_alpha_mean.txt /app/posterior_beta_mean.txt /app/hierarchical_model.stan /app/analysis.R",
+        "Run: cat /app/posterior_alpha_mean.txt – output prints 2.89007707401232 (numeric, not NA).",
+        "Run: cat /app/posterior_beta_mean.txt – output prints 16.452935843351 (numeric).",
+        "Run: head -5 /app/hierarchical_model.stan && echo '---' && tail -5 /app/hierarchical_model.stan – verifies data/parameters/model blocks present.",
+        "Run: head -10 /app/analysis.R – confirms library(rstan), iter=100000, chains=4, seed=1.",
+        "Report: 'All required output files exist and have correct format. posterior_alpha_mean.txt contains 2.890..., posterior_beta_mean.txt contains 16.453... The Stan model correctly implements the hierarchical Beta-Binomial model. The R script properly uses rstan with 4 chains, 100,000 iterations, and s"
+      ]
+    },
+    "failure_cases_prevented": [
+      "output_file_not_created_due_to_runtime_error",
+      "output_file_contains_na_or_inf_instead_of_valid_number",
+      "model_file_has_syntax_error_or_missing_prior",
+      "script_uses_wrong_iterations_or_seed",
+      "verifier_fails_because_of_unchecked_file_content"
+    ],
+    "source": {
+      "task_id": "mcmc-sampling-stan",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/mcmc-sampling-stan/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/mcmc-sampling-stan/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/mcmc-sampling-stan/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/mcmc-sampling-stan/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": true,
+      "trajectory_diagnosis": "- The planner successfully decomposed the task into two distinct subtasks: environment setup + model execution, and verification, with the second subtask dedicated to checking file existence and content. - The sub-agent demonstrated effective error recovery: after rstan installation timed out, it killed stale locks and retried, resulting in successful installation (verified via R command). - All 6 verifier tests passed (test_rstan_package_installed, test_hierarchical_model_implemented, test_r_script_created_and_used_rstan, test_posterior_alpha_estimation, test_posterior_beta_estimation, test_stan_model_sampling), confirming output completeness and correctness. - The separate verification subtask (attempt 2) caught potential issues early by explicitly listing files and printing contents, which reinforced confidence before final submission. - The agent handled a modeling warning (divergent transitions) without treating it as a failure, focusing on producing the required output files as specified.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Precise configuration file editing with sed insertion",
+    "level": "subtask",
+    "description": "When modifying a configuration file (e.g., nginx.conf), first read the file to identify the exact line after which to insert new lines, then use `sed -i` with the append command to add the new lines immediately after the matched line, preserving indentation.",
+    "application_scenarios": [
+      "Adding custom log formats to nginx.conf inside the http block",
+      "Inserting rate limiting zone definitions after the access_log line",
+      "Adding new directives to any configuration file with known anchor lines",
+      "Modifying system configuration files like sshd_config or sysctl.conf",
+      "Inserting lines after a specific comment or setting in shell profiles"
+    ],
+    "execution_principles": [
+      "Always read the target file first with `cat` to confirm the exact anchor line",
+      "Use single quotes around the sed command to avoid shell variable expansion",
+      "Use the `a\\` command to append after the matched line",
+      "Include proper indentation (tabs or spaces) to match existing style",
+      "Test the modified configuration with the application's syntax checker (e.g., nginx -t)",
+      "If multiple lines need insertion, combine them with escaped newlines in a single sed command",
+      "Avoid using `echo >` to overwrite entire files unless explicitly required"
+    ],
+    "workflow": [
+      "read_file_with_cat",
+      "identify_anchor_line",
+      "construct_sed_insertion_command",
+      "execute_sed_i_command",
+      "verify_file_content",
+      "run_syntax_validation_and_service_restart"
+    ],
+    "example": {
+      "situation": "Need to add a custom log_format and limit_req_zone into nginx.conf's http block, right after the access_log line.",
+      "steps": [
+        "cat /etc/nginx/nginx.conf to view content",
+        "Note the exact line: 'access_log /var/log/nginx/access.log;'",
+        "Run: sed -i '/access_log \\/var\\/log\\/nginx\\/access.log;/a\\'$'\\tlog_format benchmark ...\\n\\tlimit_req_zone ...' /etc/nginx/nginx.conf",
+        "Verify with cat again",
+        "Test: nginx -t",
+        "Restart nginx"
+      ]
+    },
+    "failure_cases_prevented": [
+      "overwriting_entire_config_file_instead_of_inserting",
+      "matching_wrong_line_leading_to_incorrect_placement",
+      "failing_to_escape_special_characters_in_patterns",
+      "missing_indentation_causing_syntax_error",
+      "not_testing_syntax_before_restart"
+    ],
+    "source": {
+      "task_id": "nginx-request-logging",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/nginx-request-logging/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/nginx-request-logging/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/nginx-request-logging/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/nginx-request-logging/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": true,
+      "trajectory_diagnosis": "- The sub-agent installed Nginx, set up document root, and created both index and 404 pages correctly. - It read the existing nginx.conf, then used `sed` with append (`a\\`) to insert the custom log format and rate limiting zone after the access_log line, preserving indentation. - It created the server block configuration file using a heredoc, ensuring correct syntax. - It ran `nginx -t` before restart, then restarted Nginx with `service`, and verified HTTP 200 via curl. - It checked the custom access log file and confirmed log format matches expected output; all 8 verifier tests passed.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "End-to-end validation of web server configuration changes",
+    "level": "subtask",
+    "description": "After modifying web server configuration, perform a structured validation: syntax check, restart, health check via HTTP status, and log verification to ensure the server works correctly and logs the expected data.",
+    "application_scenarios": [
+      "After adding new server blocks or modifying existing ones in nginx/apache",
+      "After enabling new modules or logging formats",
+      "After implementing rate limiting or error page configurations",
+      "After changing document root or virtual host settings",
+      "After any change that could affect server availability or logging"
+    ],
+    "execution_principles": [
+      "Always run the web server's built-in syntax test (e.g., `nginx -t`) before restarting",
+      "Use a service manager command (systemctl or service) to restart (not kill/start directly)",
+      "Perform a curl request to localhost on the configured port to check HTTP status code",
+      "Check the custom access log file (if applicable) to confirm log format and content",
+      "If possible, make a second request to trigger error pages (e.g., 404) and verify those logs",
+      "Ensure no previous service is still running on the same port (use netstat if needed)",
+      "If tests fail, revert the config and debug before retrying"
+    ],
+    "workflow": [
+      "run_syntax_test",
+      "if_syntax_ok_then_restart_service",
+      "wait_for_service_to_start",
+      "curl_localhost_to_get_http_status",
+      "verify_custom_log_file_exists",
+      "check_log_file_content_for_expected_format",
+      "if_all_pass_finalize_configuration"
+    ],
+    "example": {
+      "situation": "Configured nginx with a custom log format on port 8080, rate limiting, and 404 error page.",
+      "steps": [
+        "Run: nginx -t to verify syntax",
+        "Run: service nginx restart",
+        "Run: curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/ => expect 200",
+        "Run: cat /var/log/nginx/benchmark-access.log to see a log entry with time, method, status, user-agent",
+        "Run: curl -s http://localhost:8080/nonexistent and check 404 page content",
+        "If all pass, confirm success"
+      ]
+    },
+    "failure_cases_prevented": [
+      "restarting_with_invalid_config_causing_downtime",
+      "assuming_server_is_running_without_http_check",
+      "ignoring_log_file_content_verification",
+      "not_testing_error_pages_and_edge_cases",
+      "overlooking_port_binding_conflicts"
+    ],
+    "source": {
+      "task_id": "nginx-request-logging",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/nginx-request-logging/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/nginx-request-logging/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/nginx-request-logging/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/nginx-request-logging/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": true,
+      "trajectory_diagnosis": "- The sub-agent installed Nginx, set up document root, and created both index and 404 pages correctly. - It read the existing nginx.conf, then used `sed` with append (`a\\`) to insert the custom log format and rate limiting zone after the access_log line, preserving indentation. - It created the server block configuration file using a heredoc, ensuring correct syntax. - It ran `nginx -t` before restart, then restarted Nginx with `service`, and verified HTTP 200 via curl. - It checked the custom access log file and confirmed log format matches expected output; all 8 verifier tests passed.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Timely submission after official test suite passes",
+    "level": "subtask",
+    "description": "After implementing and building the required code, run the verifier's test suite (e.g., pytest) exactly once. If all tests pass, immediately call the submit action to finalize the task. Do not re-run benchmarks or inspect output files unless a test failure is observed.",
+    "application_scenarios": [
+      "multi-step build-and-test tasks with an official test suite",
+      "tasks requiring C extension or external tool compilation",
+      "tasks where verifier output is the final success criterion",
+      "tasks with limited attempt budget (max_attempts)",
+      "tasks where the benchmark script already reports correct outputs"
+    ],
+    "execution_principles": [
+      "Locate the test suite command in the task description or by listing test files",
+      "Run the test suite (e.g., pytest) only after a complete implementation and successful local build",
+      "Inspect the test summary for any FAILED, ERROR, or skipped tests; act only on failures",
+      "If the summary shows all tests passed, invoke submit immediately without additional verification steps",
+      "Avoid re-executing the same benchmark or reading output files when no failure exists",
+      "Consider each attempt cost; redundant verification wastes attempts and may trigger timeouts"
+    ],
+    "workflow": [
+      "implement_required_code",
+      "build_extension_or_compile",
+      "run_official_test_suite",
+      "parse_test_summary_for_passed_or_failed",
+      "if_all_passed_then_call_submit",
+      "else_analyze_failure_and_repeat"
+    ],
+    "example": {
+      "situation": "After writing a C extension and compiling it, you run `python3 -m pytest tests/` and see '6 passed'. Instead of running additional commands to check the output file, you should call submit immediately.",
+      "steps": [
+        "read setuptools build command from setup.py",
+        "run 'python3 setup.py build_ext --inplace'",
+        "run 'python3 -m pytest tests/'",
+        "capture stdout and check for 'PASSED' without failures",
+        "if all passed, execute submit()"
+      ]
+    },
+    "failure_cases_prevented": [
+      "wasting_attempts_on_redundant_verification",
+      "missing_submit_call_due_to_excessive_rechecking",
+      "failing_task_after_successful_build_by_exceeding_attempt_limit",
+      "overlooking_submit_action_when_test_suite_passes",
+      "unnecessarily_rerunning_benchmarks_that_dont_change_state"
+    ],
+    "source": {
+      "task_id": "portfolio-optimization",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/portfolio-optimization/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/portfolio-optimization/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/portfolio-optimization/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/portfolio-optimization/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent successfully implemented the C extension in the first delegation, passing all correctness and performance benchmarks (1.5x–1.7x speedup). - The verifier test suite (`pytest`) passed all 6 tests, confirming the implementation meets task requirements and earning a reward of 1.0. - The agent never called the `submit` action, spending all 8 attempts on redundant re-verification of the same benchmark output. - The primary success factor was the initial comprehensive file reading and correct TODO replacement; the primary inefficiency was failing to submit after the first successful test suite run.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Systematic code reading and TODO replacement for C extensions",
+    "level": "subtask",
+    "description": "When implementing a C extension from skeleton files, first list and read all relevant source files (baseline.py, optimized.c, optimized.py, setup.py) to understand the algorithm, data structures, and build process. Then replace every TODO placeholder with correct loops using the NumPy C API, matching the baseline logic exactly.",
+    "application_scenarios": [
+      "tasks with skeleton C files containing TODO comments",
+      "tasks requiring performance optimization via C extensions",
+      "tasks with Python wrappers and setup.py build scripts",
+      "tasks where the baseline algorithm is provided in pure Python",
+      "tasks involving matrix operations (risk, return, dot products)"
+    ],
+    "execution_principles": [
+      "Run 'ls -la' to inventory all files before reading any contents",
+      "Read the baseline Python file to understand the exact calculation steps (e.g., nested loops for matrix-vector multiply)",
+      "Read the C skeleton to identify all TODO comments and function signatures",
+      "Use NumPy C API functions (PyArray_GETPTR1, PyArray_GETPTR2) for zero-copy access",
+      "Implement the exact same algorithm in C with double-precision loops",
+      "Update the Python wrapper (optimized.py) to convert inputs to NumPy arrays and call the C functions",
+      "Build with 'python3 setup.py build_ext --inplace' and check for compilation errors",
+      "Run the benchmark or test suite to verify correctness and speedup requirement"
+    ],
+    "workflow": [
+      "list_all_files_in_working_directory",
+      "cat_baseline_python_file",
+      "cat_c_skeleton_file",
+      "cat_python_wrapper_and_setup",
+      "replace_all_todos_with_c_implementation",
+      "update_python_wrapper_to_import_and_call_c_functions",
+      "build_extension",
+      "run_test_suite_to_validate"
+    ],
+    "example": {
+      "situation": "Given portfolio_optimized.c with TODO markers for portfolio_risk and portfolio_return, and portfolio_baseline.py showing pure Python loops for sqrt(x^T * S * x) and x^T * r.",
+      "steps": [
+        "list files: ls -la",
+        "read baseline: cat portfolio_baseline.py",
+        "read skeleton: cat portfolio_optimized.c",
+        "implement risk: double loop for temp[i]=sum(cov[i][j]*w[j]), then dot product, return sqrt",
+        "implement return: single loop for sum(w[i]*r[i])",
+        "update portfolio_optimized.py: convert inputs to np.array, call C functions",
+        "build: python3 setup.py build_ext --inplace",
+        "test: python3 benchmark.py or pytest"
+      ]
+    },
+    "failure_cases_prevented": [
+      "missing_todo_replacement_leading_to_zeros_or_notimplemented",
+      "incorrect_algorithm_mismatch_baseline",
+      "build_errors_from_wrong_numpy_api_version_or_missing_import_array",
+      "forgetting_to_update_python_wrapper_to_use_c_extension",
+      "not_checking_build_success_before_testing",
+      "using_python_instead_of_c_loops_in_extension"
+    ],
+    "source": {
+      "task_id": "portfolio-optimization",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/portfolio-optimization/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/portfolio-optimization/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/portfolio-optimization/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_0/portfolio-optimization/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent successfully implemented the C extension in the first delegation, passing all correctness and performance benchmarks (1.5x–1.7x speedup). - The verifier test suite (`pytest`) passed all 6 tests, confirming the implementation meets task requirements and earning a reward of 1.0. - The agent never called the `submit` action, spending all 8 attempts on redundant re-verification of the same benchmark output. - The primary success factor was the initial comprehensive file reading and correct TODO replacement; the primary inefficiency was failing to submit after the first successful test suite run.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Complete file retrieval without truncation",
+    "level": "subtask",
+    "description": "Guarantee full file content capture for any text/binary file in the Docker environment by using Python to read and save to a temporary file, then reading it in fixed-size chunks or writing to a safe location instead of relying on cat/head/sed which often truncate.",
+    "application_scenarios": [
+      "Reading long source files (e.g., COBOL, C, Java) with >100 lines",
+      "Retrieving binary data or hex dumps when xxd is unavailable",
+      "Inspecting large configuration or log files that exceed terminal scrollback",
+      "Extracting record layouts from fixed-width binary files",
+      "Obtaining complete test output that would otherwise be truncated by shell commands",
+      "Debugging when stdout is capped by the container environment"
+    ],
+    "execution_principles": [
+      "Always first copy the file to a writable location (e.g., /tmp/) to avoid permission issues.",
+      "Use Python to read the entire file into memory and write it to a separate text file (e.g., /tmp/full_source.txt).",
+      "If the Python print itself is truncated, break the content into fixed-size chunks (e.g., 50 lines) and print each chunk with a clear separator.",
+      "Alternatively, use `head -n` and `sed -n 'm,np'` in sequence to read non-overlapping line ranges.",
+      "Verify total line count with `wc -l` before and after reading to ensure completeness.",
+      "For binary files, dump hex using Python's `hexlify` or `bytes.hex()` with offset, not `od` which may truncate.",
+      "When using cat or head, redirect to a file first (`cat file > /tmp/out`) then read that file with Python to avoid scrollback loss."
+    ],
+    "workflow": [
+      "copy_file_to_temp_location",
+      "count_total_lines_or_bytes",
+      "choose_retrieval_method_python_or_sed_chunks",
+      "read_and_save_full_content_to_temp_file",
+      "verify_completeness_matching_line_count",
+      "output_the_full_content_in_controlled_segments",
+      "delete_temp_file_after_use"
+    ],
+    "example": {
+      "situation": "A COBOL source file `program.cbl` has 164 lines, but `cat` only shows the last 80 lines due to truncation.",
+      "steps": [
+        "cp /app/src/program.cbl /tmp/source.txt",
+        "wc -l /tmp/source.txt  # output 164",
+        "python3 -c \"with open('/tmp/source.txt') as f: lines = f.readlines(); [print(f'{i+1}: {line}', end='') for i,line in enumerate(lines)]\" > /tmp/full_output.txt 2>&1",
+        "Check if /tmp/full_output.txt has 164 lines; if not, split with head/sed",
+        "cat /tmp/full_output.txt  # now have full content"
+      ]
+    },
+    "failure_cases_prevented": [
+      "truncated_program_analysis_leading_to_wrong_reimplementation",
+      "step_waste_re_running_same_file_read_commands",
+      "incomplete_binary_dump_missing_record_boundaries",
+      "assuming_file_is_short_when_it_is_long",
+      "losing_debug_info_because_output_exceeds_buffer"
+    ],
+    "source": {
+      "task_id": "cobol-modernization",
+      "attempt": "attempt_1",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/cobol-modernization/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/cobol-modernization/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/cobol-modernization/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/cobol-modernization/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent succeeded despite consuming all 8 attempts, largely because it persistently extracted the COBOL source (164 lines) and data file formats despite repeated output truncation from cat/head/sed. - Key enabler: switching to Python-based hex dumps and segmented reading (head, sed, awk) eventually assembled the complete program logic. - The agent compiled and ran the COBOL program, observed validation failure (book missing), and created a Python reimplementation that mirrors the exact COBOL behavior. - Verifier confirms success: all 3 tests (required files, data files, program output) passed, indicating the Python script produced correct output files identical to the original COBOL run. - Major inefficiency: spending 6+ attempts solely on reading the same file, delaying the actual reimplementation and risking step exhaustion.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Systematic validation and reproduction of legacy program behavior",
+    "level": "subtask",
+    "description": "When reimplementing a legacy program (e.g., COBOL) in another language (e.g., Python), first run the original program with backups to capture its exact behavior, then replicate that logic precisely, and finally verify output file identity using diff or hash checks.",
+    "application_scenarios": [
+      "Modernization tasks where COBOL/C/assembly must be replaced by Python or Java",
+      "Porting file-based transaction systems to new environments",
+      "Writing test harnesses that must match legacy output byte-for-byte",
+      "Debugging when the legacy program fails on certain inputs and you need a faithful replica",
+      "Ensuring that new implementations do not introduce side effects like extra files or corrupted records"
+    ],
+    "execution_principles": [
+      "Backup all original data files before executing the legacy program for the first time.",
+      "Run the legacy program in the exact same environment (same working directory, same input files).",
+      "Capture stdout and stderr of the legacy run; note any error messages or success messages.",
+      "After the legacy run, use `diff` or `md5sum` to compare modified files against the backups to detect any changes.",
+      "Analyze the legacy source to understand data flow: record formats, validation logic, update order.",
+      "Write the reimplementation in a way that processes the same input file and produces the same output files and console messages.",
+      "Test the reimplementation against the same input; compare output files with `diff` and console output verbatim.",
+      "If validation fails in legacy, the reimplementation must also fail with the same message and leave files untouched."
+    ],
+    "workflow": [
+      "backup_all_data_files_to_orig_suffix",
+      "compile_and_run_legacy_program",
+      "capture_full_stdout_and_stderr",
+      "compare_modified_files_against_backups",
+      "analyze_source_code_for_logic_and_record_layouts",
+      "implement_replica_in_target_language",
+      "run_replica_on_same_input",
+      "verify_stdout_and_files_are_identical_using_diff_or_md5"
+    ],
+    "example": {
+      "situation": "A COBOL program updates account balances, book ownership, and appends transactions. It fails validation for a given input and leaves files unchanged.",
+      "steps": [
+        "cp ACCOUNTS.DAT ACCOUNTS.DAT.orig && cp BOOKS.DAT BOOKS.DAT.orig && cp TRANSACTIONS.DAT TRANSACTIONS.DAT.orig",
+        "cobc -x program.cbl && ./program  # prints 'Transaction failed due to validation errors'",
+        "diff ACCOUNTS.DAT ACCOUNTS.DAT.orig  # no differences",
+        "Analyze COBOL: read INPUT.DAT, validate buyer/seller/book, if validation fails display error and stop.",
+        "Write Python script: open INPUT.DAT, parse records, check existence, if any missing print same message and exit without modifying files.",
+        "python3 program.py  # prints same message",
+        "diff ACCOUNTS.DAT ACCOUNTS.DAT.orig  # still identical",
+        "md5sum *DAT*  # confirm all hashes match"
+      ]
+    },
+    "failure_cases_prevented": [
+      "reimplementing_incorrect_logic_that_modifies_files_on_validation_failure",
+      "missing_console_output_equivalence_causing_verifier_failure",
+      "using_incorrect_record_lengths_leading_to_corrupted_output",
+      "overwriting_original_data_without_backup_losing_ground_truth",
+      "assuming_legacy_program_success_when_it_actually_fails",
+      "producing_extra_or_modified_files_that_verifier_checks"
+    ],
+    "source": {
+      "task_id": "cobol-modernization",
+      "attempt": "attempt_1",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/cobol-modernization/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/cobol-modernization/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/cobol-modernization/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/cobol-modernization/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent succeeded despite consuming all 8 attempts, largely because it persistently extracted the COBOL source (164 lines) and data file formats despite repeated output truncation from cat/head/sed. - Key enabler: switching to Python-based hex dumps and segmented reading (head, sed, awk) eventually assembled the complete program logic. - The agent compiled and ran the COBOL program, observed validation failure (book missing), and created a Python reimplementation that mirrors the exact COBOL behavior. - Verifier confirms success: all 3 tests (required files, data files, program output) passed, indicating the Python script produced correct output files identical to the original COBOL run. - Major inefficiency: spending 6+ attempts solely on reading the same file, delaying the actual reimplementation and risking step exhaustion.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Systematically Explore HuggingFace Dataset Structure and Configurations",
+    "level": "subtask",
+    "description": "When working with an unfamiliar HuggingFace dataset, first load it and inspect its splits, features, and alternative configurations to avoid assumptions about field names or single-config structure before writing processing code.",
+    "application_scenarios": [
+      "Loading datasets from HuggingFace that may have multiple configurations (e.g., default vs metadata)",
+      "Filtering datasets by categorical fields like domain or source",
+      "Counting tokens or extracting text from dataset entries",
+      "Any task where the dataset schema is not known in advance"
+    ],
+    "execution_principles": [
+      "Always load the dataset with `load_dataset(name)` first to see available splits and features",
+      "Print the DatasetDict object to understand splits and row count",
+      "If expected fields are missing, check for alternative configs using `get_dataset_config_names(name)`",
+      "Load the target config explicitly with `load_dataset(name, config_name)`",
+      "Print sample rows to verify field content and data types (string, list, dict)",
+      "Use `.features` to enumerate all field names and their dtypes",
+      "Do not hardcode field names without verifying they exist in the loaded dataset"
+    ],
+    "workflow": [
+      "load_dataset_without_config",
+      "print_dataset_structure",
+      "check_if_expected_fields_exist",
+      "if_not_list_available_configurations",
+      "load_target_explicit_config",
+      "print_sample_row_keys_and_values",
+      "confirm_field_names_and_types",
+      "proceed_with_processing"
+    ],
+    "example": {
+      "situation": "User needs to count tokens of science-domain entries from a dataset that has both a default and a metadata config.",
+      "steps": [
+        "Load dataset using `load_dataset('ryanmarten/OpenThoughts-1k-sample')`",
+        "Print DatasetDict: seen only 'system' and 'conversations' fields",
+        "Search for dataset configs via `get_dataset_config_names()` -> finds 'metadata'",
+        "Load `load_dataset('ryanmarten/OpenThoughts-1k-sample', 'metadata')`",
+        "Print features: now shows 'domain', 'deepseek_reasoning', 'deepseek_solution'",
+        "Proceed with filtering by domain and tokenization"
+      ]
+    },
+    "failure_cases_prevented": [
+      "assuming_single_config_and_missing_fields",
+      "hardcoding_field_names_that_do_not_exist",
+      "index_error_when_searching_for_absent_fields",
+      "using_wrong_text_field_from_default_config"
+    ],
+    "source": {
+      "task_id": "count-dataset-tokens",
+      "attempt": "attempt_1",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/count-dataset-tokens/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/count-dataset-tokens/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/count-dataset-tokens/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/count-dataset-tokens/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": true,
+      "trajectory_diagnosis": "- The sub-agent initially failed due to assuming a single dataset configuration and a specific domain field, causing an `IndexError` when the default config lacked those fields. - The agent then conducted exploratory debugging: inspected dataset configurations, discovered the \"metadata\" config with correct fields (`domain`, `deepseek_reasoning`, `deepseek_solution`). - The agent correctly filtered science domains (biology, chemistry, physics) and combined both deepseek fields for tokenization, instead of guessing a single text field. - Final token count (79586) was written to `/app/answer.txt`, and the verifier (`pytest`) passed, confirming success. - The trajectory demonstrates two key reusable skills: systematic dataset structure exploration and robust multi-field text extraction.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Identify and Combine Multiple Text Fields from Dataset Rows",
+    "level": "subtask",
+    "description": "When extracting text content from a dataset for tokenization, inspect sample rows to locate all relevant text fields (e.g., reasoning and solution), handle None values, and combine them with newline separators into a single corpus before tokenizing.",
+    "application_scenarios": [
+      "Tokenizing multi-field text datasets where content is split across fields (e.g., reasoning + solution)",
+      "Aggregating separate parts of a response (system, user, assistant) into one string",
+      "Counting tokens of combined content from fields like 'deepseek_reasoning' and 'deepseek_solution'",
+      "Preprocessing datasets for LLM training or evaluation"
+    ],
+    "execution_principles": [
+      "Print a sample row and list all keys to see available fields",
+      "Identify candidate text fields using domain knowledge (e.g., 'deepseek_reasoning', 'deepseek_solution', 'thinking', 'response')",
+      "Check if each field is a string, list, or dict and handle nested structures accordingly",
+      "Default to empty string for None or missing fields to avoid concatenation errors",
+      "Combine fields with newline separators to preserve boundaries",
+      "Print the total character length of the combined text before tokenizing as a sanity check",
+      "Use the tokenizer directly on the combined string"
+    ],
+    "workflow": [
+      "load_sample_row_and_print_all_keys",
+      "list_candidate_text_fields_based_on_names",
+      "inspect_content_type_of_each_field",
+      "build_combined_text_by_iterating_rows",
+      "handle_none_values_with_fallback_empty_string",
+      "concatenate_fields_with_newline_delimiter",
+      "print_total_character_length_for_verification",
+      "tokenize_and_count_tokens"
+    ],
+    "example": {
+      "situation": "Dataset has fields 'deepseek_reasoning' and 'deepseek_solution' but user needs total tokens of science entries.",
+      "steps": [
+        "Load a sample row and print keys: 'problem', 'deepseek_reasoning', 'deepseek_solution', 'domain'",
+        "Notice both reasoning and solution contain long text strings",
+        "For each filtered row: reasoning = row.get('deepseek_reasoning','') or ''; solution = row.get('deepseek_solution','') or ''",
+        "Combine: all_text += reasoning + '\\n' + solution + '\\n'",
+        "Print combined length: 320309 chars",
+        "Tokenize with AutoTokenizer.from_pretrained('Qwen/Qwen2.5-1.5B-Instruct')",
+        "Count tokens: 79586",
+        "Write count to answer.txt"
+      ]
+    },
+    "failure_cases_prevented": [
+      "using_only_one_text_field_when_multiple_contain_relevant_content",
+      "none_field_values_crashing_concatenation",
+      "missing_longest_text_field_underestimating_token_count",
+      "ignoring_list_or_dict_fields_that_need_flattening"
+    ],
+    "source": {
+      "task_id": "count-dataset-tokens",
+      "attempt": "attempt_1",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/count-dataset-tokens/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/count-dataset-tokens/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/count-dataset-tokens/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/count-dataset-tokens/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": true,
+      "trajectory_diagnosis": "- The sub-agent initially failed due to assuming a single dataset configuration and a specific domain field, causing an `IndexError` when the default config lacked those fields. - The agent then conducted exploratory debugging: inspected dataset configurations, discovered the \"metadata\" config with correct fields (`domain`, `deepseek_reasoning`, `deepseek_solution`). - The agent correctly filtered science domains (biology, chemistry, physics) and combined both deepseek fields for tokenization, instead of guessing a single text field. - Final token count (79586) was written to `/app/answer.txt`, and the verifier (`pytest`) passed, confirming success. - The trajectory demonstrates two key reusable skills: systematic dataset structure exploration and robust multi-field text extraction.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Pre-refactoring codebase exploration and documentation",
+    "level": "subtask",
+    "description": "Before rewriting legacy code, systematically explore the entire directory structure and read the full contents of all relevant files (source, data, config, dependencies) to identify Python 2/3 incompatibilities, encoding issues, and deprecated API usage.",
+    "application_scenarios": [
+      "Modernizing Python 2 scripts to Python 3",
+      "Upgrading legacy data analysis pipelines",
+      "Porting scientific code that uses deprecated libraries",
+      "Refactoring scripts with implicit encoding assumptions"
+    ],
+    "execution_principles": [
+      "Use `find /path -type f -o -type d | sort` to get a complete file listing",
+      "Read every file entirely with `cat` to capture all deprecated patterns",
+      "Identify Python 2 only syntax: print statement, xrange, ConfigParser, urllib2, etc.",
+      "Note encoding declarations and Unicode filenames in comments or paths",
+      "Check existing dependency files for pinned versions that block upgrade",
+      "Output a concise summary of all found issues before writing any new code"
+    ],
+    "workflow": [
+      "list_directory_structure",
+      "read_legacy_source_file",
+      "read_data_file_and_config",
+      "read_old_dependency_file",
+      "compile_issue_list",
+      "document_required_changes"
+    ],
+    "example": {
+      "situation": "Given a legacy Python 2 script analyze_climate.py that uses xrange, ConfigParser, and unicode literals, along with a CSV data file and config.ini.",
+      "steps": [
+        "Run `find /app/climate_analyzer/ -type f -o -type d | sort` to list all files",
+        "Execute `cat /app/climate_analyzer/analyze_climate.py` and inspect for `xrange`, `ConfigParser`, `unicode()`",
+        "Read `sample_data/climate_data.csv` with `cat` to check encoding and date format",
+        "Read `config.ini` for sections and encoding",
+        "Read `requirements_old.txt` for outdated version pins",
+        "Summarize: need to replace xrange with range, ConfigParser with configparser, add encoding='utf-8', remove Python 2 imports"
+      ]
+    },
+    "failure_cases_prevented": [
+      "missing_unicode_decoding_issues",
+      "overlooked_deprecated_api_usage",
+      "incomplete_dependency_version_update",
+      "ignoring_config_file_structure",
+      "not_accounting_for_path_differences"
+    ],
+    "source": {
+      "task_id": "modernize-scientific-stack",
+      "attempt": "attempt_1",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/modernize-scientific-stack/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/modernize-scientific-stack/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/modernize-scientific-stack/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/modernize-scientific-stack/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": true,
+      "trajectory_diagnosis": "- The agent succeeded (reward=1.0) by thoroughly exploring all legacy files before writing the modernized script, preventing hidden encoding or dependency issues. - The sub-agent correctly identified Python 2 patterns (print, xrange, ConfigParser, unicode, deprecated pandas APIs) and replaced them with Python 3 equivalents (pathlib, f-strings, configparser, pandas read_csv with encoding). - Dependencies were modernized with minimum version constraints (>=) and installed via pip after ensuring python3-pip was present, then the script was executed to verify correct output (Station 101: -15.5°C, Station 102: 30.3°C). - The planner used a two-stage delegation (explore+create, then verify) which ensured the final artifacts matched the task requirements. - Verifier tests (`test_modernized_code_runs` and `test_dependency_file_exists`) both passed, confirming runtime success and proper file existence.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Complete dependency and runtime verification pipeline for modernized code",
+    "level": "subtask",
+    "description": "After writing a modernized script, install all required dependencies with minimum version constraints, execute the script within the same shell session, capture stdout/stderr, and verify that output matches expected format and values before submitting.",
+    "application_scenarios": [
+      "After rewriting a legacy Python script",
+      "When dependencies were updated or added",
+      "When output format is specified by the task (e.g., 'Station X mean temperature: Y°C')",
+      "Before submitting a solution that creates new files"
+    ],
+    "execution_principles": [
+      "Create requirements.txt with `numpy>=1.24.0` style constraints, not exact pins",
+      "Ensure python3 and pip are installed via `apt-get install -y python3-pip` if missing",
+      "Install requirements with `pip install -q -r requirements.txt` to suppress noisy output",
+      "Run the script with `python3 path/to/script.py` and capture all console output",
+      "Check that numeric outputs are within expected ranges and formatting matches exact required strings",
+      "Also verify that the created files exist and are non-empty using `wc -l` or `cat`"
+    ],
+    "workflow": [
+      "create_requirements_file",
+      "install_system_dependencies_if_needed",
+      "install_python_packages",
+      "run_script_and_capture_output",
+      "validate_output_against_expected_format",
+      "check_file_existence_and_content",
+      "report_success_or_debug_failures"
+    ],
+    "example": {
+      "situation": "Modernized script /app/analyze_climate_modern.py and requirements.txt have been created. Need to verify they work correctly.",
+      "steps": [
+        "Write requirements.txt with `numpy>=1.24.0\\npandas>=2.0.0\\nmatplotlib>=3.7.0\\nscipy>=1.10.0`",
+        "Run `apt-get update -qq && apt-get install -y -qq python3-pip` if pip3 not found",
+        "Execute `pip3 install -q pandas numpy` (or full requirements)",
+        "Run `python3 /app/analyze_climate_modern.py` and read stdout",
+        "Confirm output contains exactly 'Station 101 mean temperature: -15.5°C' and 'Station 102 mean temperature: 30.3°C'",
+        "Also run `cat /app/analyze_climate_modern.py /app/requirements.txt` to ensure files are complete",
+        "If output matches, proceed to submit"
+      ]
+    },
+    "failure_cases_prevented": [
+      "missing_dependency_installation",
+      "unused_pinned_versions_breaking_modern_env",
+      "script_runtime_errors_not_checked",
+      "output_format_mismatch_with_verifier_expectations",
+      "forgetting_to_verify_file_existence",
+      "assuming_environment_has_preinstalled_packages"
+    ],
+    "source": {
+      "task_id": "modernize-scientific-stack",
+      "attempt": "attempt_1",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/modernize-scientific-stack/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/modernize-scientific-stack/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/modernize-scientific-stack/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/modernize-scientific-stack/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": true,
+      "trajectory_diagnosis": "- The agent succeeded (reward=1.0) by thoroughly exploring all legacy files before writing the modernized script, preventing hidden encoding or dependency issues. - The sub-agent correctly identified Python 2 patterns (print, xrange, ConfigParser, unicode, deprecated pandas APIs) and replaced them with Python 3 equivalents (pathlib, f-strings, configparser, pandas read_csv with encoding). - Dependencies were modernized with minimum version constraints (>=) and installed via pip after ensuring python3-pip was present, then the script was executed to verify correct output (Station 101: -15.5°C, Station 102: 30.3°C). - The planner used a two-stage delegation (explore+create, then verify) which ensured the final artifacts matched the task requirements. - Verifier tests (`test_modernized_code_runs` and `test_dependency_file_exists`) both passed, confirming runtime success and proper file existence.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Binary fragment reconstruction from adjacent offsets",
+    "level": "subtask",
+    "description": "When a target string is split across non-contiguous regions of a binary file, extract each fragment using its exact byte offset, inspect the surrounding hex dump for printable characters, and concatenate fragments in order to form the complete string.",
+    "application_scenarios": [
+      "Recovering passwords or keys split across two or more areas in a disk image or binary blob",
+      "Reconstructing file headers or metadata from carved fragments",
+      "Combining partial matches found by grep or strings when the full pattern is broken by non-printable bytes",
+      "Forensic data recovery where deletion or corruption left a file in multiple pieces",
+      "Extracting hidden data from binary files where the plaintext is interleaved with control characters"
+    ],
+    "execution_principles": [
+      "Use `grep -aob` to list all byte offsets where a known prefix or suffix occurs.",
+      "Dump 200–300 bytes around each offset with `dd bs=1 skip=<offset> count=<len> | xxd` to see raw context.",
+      "Look for printable ASCII sequences that start with the prefix and end with the suffix nearby but separated by non-printable bytes.",
+      "If the prefix fragment ends abruptly and the suffix fragment begins a few bytes later (possibly with a newline or hex non-printable separator), concatenate them directly after removing the separator.",
+      "Validate the reconstructed string against all known constraints (length, character set, prefix/suffix) before writing to output.",
+      "Use `strings -n <min_length>` on the same region to confirm the final printable sequence is contiguous."
+    ],
+    "workflow": [
+      "find_all_offsets_of_prefix_and_suffix_using_grep_abo",
+      "for_each_pair_of_offsets_extract_surrounding_bytes_with_dd_and_xxd",
+      "inspect_hex_dump_for_printable_sequences_between_the_two_offsets",
+      "identify_the_exact_printable_fragments_and_determine_if_they_are_adjacent_after_removing_non_printable_separators",
+      "concatenate_the_printable_fragments_in_offset_order",
+      "verify_the_reconstructed_string_meets_all_length_and_character_constraints",
+      "write_the_validated_string_to_the_output_file"
+    ],
+    "example": {
+      "situation": "A 23-character password starting with '8XD' and ending with 'W54' is split across two locations in a binary file. `grep -aob` found '8XD' at offset X and 'W54' at offset Y. Single `strings` or `grep` cannot match the full pattern because non-printable bytes separate the two parts.",
+      "steps": [
+        "Run `grep -aob '8XD' file.dat` → offset 1048661",
+        "Run `grep -aob 'W54' file.dat` → offset 3145737",
+        "Dump bytes around offset 1048661: `dd if=file.dat bs=1 skip=1048661 count=100 | xxd` → see '8XDP5Q2RT9Z' followed by non-printable bytes",
+        "Dump bytes around offset 3145737: `dd if=file.dat bs=1 skip=3145690 count=200 | xxd` → see 'K7VB3BV4WW54' preceded by non-printable bytes",
+        "Run `strings -n 10 file.dat | grep -E '8XD|W54'` → outputs 'PASSWORD=8XDP5Q2RT9Z' and '\\\\K7VB3BV4WW54' (backslash is non-printable artifact)",
+        "Concatenate the two printable fragments: '8XDP5Q2RT9Z' + 'K7VB3BV4WW54' = '8XDP5Q2RT9ZK7VB3BV4WW54'",
+        "Validate length (23 chars), prefix '8XD', suffix 'W54', all uppercase/digits → pass",
+        "Write result to /app/recovered_passwords.txt"
+      ]
+    },
+    "failure_cases_prevented": [
+      "assuming_strings_tool_alone_will_find_whole_pattern",
+      "ignoring_non_printable_bytes_that_split_adjacent_fragments",
+      "writing_incomplete_or_truncated_passwords",
+      "failing_to_compare_offsets_from_multiple_grep_commands",
+      "overlooking_that_foremost_or_scalpel_may_also_output_combined_fragments"
+    ],
+    "source": {
+      "task_id": "password-recovery",
+      "attempt": "attempt_1",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/password-recovery/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/password-recovery/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/password-recovery/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/password-recovery/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": true,
+      "trajectory_diagnosis": "- The agent succeeded by iteratively locating two separate fragments of the password in a binary file, then manually concatenating them to form the correct 23-character string. - The first delegate produced a partial password (11 chars) and identified a second fragment containing “W54”, but did not combine them; the planner refined the search offsets for subsequent attempts. - The third delegate used `strings`, `dd`, and `foremost` to extract and confirm both fragments, then wrote the concatenated result to the required output file. - Verifier tests (`test_recovery_file_exists`, `test_password_match`) both passed, confirming the final file contains the exact required password.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Systematic forensic tool chaining for deleted file recovery",
+    "level": "subtask",
+    "description": "When recovering a deleted file from a raw binary image, use a tiered approach: first explore the filesystem for backup copies or remnants, then use `strings` and `grep` to locate target patterns, then carve with `foremost` or `scalpel`, and finally inspect surrounding disk blocks with `dd` to reconstruct missing parts.",
+    "application_scenarios": [
+      "Recovering deleted configuration files or credentials from Docker containers or disk images",
+      "Forensic analysis where the target file has been removed but data remains in unallocated space",
+      "Extracting files from binary blobs that are not mounted as a filesystem",
+      "Searching for known patterns (e.g., passwords, API keys) in raw device files",
+      "When `extundelete` or `testdisk` are unavailable and manual carving is required"
+    ],
+    "execution_principles": [
+      "Always start by listing all files in the target directory and checking for hidden copies, backups, or logs.",
+      "Use `strings` with increasing minimum length (`-n 10`, `-n 23`) combined with `grep` for known patterns.",
+      "When a pattern is found in a binary file, immediately obtain the byte offset with `grep -aob` to enable precise extraction.",
+      "Install and run `foremost` on the suspected binary file; its output may contain reconstructed copies of the deleted file.",
+      "For each carved or extracted fragment, verify against all given constraints (length, prefix, suffix, character set).",
+      "If a fragment does not meet constraints, use the offset to dump a larger surrounding chunk and look for additional adjacent text.",
+      "Document all offsets and fragments to avoid redundant searches in subsequent attempts."
+    ],
+    "workflow": [
+      "list_files_and_backups_in_target_directory",
+      "search_for_target_pattern_using_strings_and_grep_across_all_files",
+      "if_pattern_found_check_if_it_meets_all_constraints_immediately",
+      "if_not_use_grep_abo_to_get_offset_and_dump_surrounding_bytes_with_dd",
+      "install_and_run_foremost_on_the_largest_binary_file_containing_the_pattern",
+      "inspect_foremost_output_for_reconstructed_file_fragments",
+      "combine_fragments_from_multiple_sources_and_validate",
+      "write_the_correct_password_to_the_required_output_file"
+    ],
+    "example": {
+      "situation": "A deleted file `launchcode.txt` is known to be in /app. Initial `ls` shows only a binary file `ae3f4c.dat` under /varsea/disks. The target password is 23 characters starting with '8XD' and ending with 'W54'.",
+      "steps": [
+        "Run `ls -la /app && find /app -type f` → discover /app/varsea/disks/sub1/subA/subAlpha/ae3f4c.dat",
+        "Run `strings /app/varsea/disks/sub1/subA/subAlpha/ae3f4c.dat | grep -i password` → find partial string 'PASSWORD=8XDP5Q2RT9Z'",
+        "Run `grep -aob '8XD' /app/varsea/disks/sub1/subA/subAlpha/ae3f4c.dat` → offset 1048661",
+        "Install foremost: `apt-get install -y foremost`",
+        "Run `foremost -i /app/varsea/disks/sub1/subA/subAlpha/ae3f4c.dat -o /tmp/foremost_out -q`",
+        "Inspect output: `find /tmp/foremost_out -type f -exec strings {} \\; | grep -E '8XD|W54'` → sees both fragments",
+        "Since fragments are separated, use dd to dump hex around both offsets and concatenate manually",
+        "Write complete password to /app/recovered_passwords.txt"
+      ]
+    },
+    "failure_cases_prevented": [
+      "only_relying_on_one_forensic_tool_and_missing_fragments",
+      "skipping_exploration_of_backup_directories_and_log_files",
+      "failing_to_install_foremost_when_it_is_not_present",
+      "not_using_grep_abo_to_get_exact_offsets_for_dd",
+      "overlooking_that_strings_may_output_reconstructed_fragments_from_foremost"
+    ],
+    "source": {
+      "task_id": "password-recovery",
+      "attempt": "attempt_1",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/password-recovery/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/password-recovery/agent/commands.log",
+      "test_output_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/password-recovery/verifier/test_output.log",
+      "ctrf_json": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_success_qwen_fail_filtered_0704/logs/attempt_1/password-recovery/verifier/ctrf.json",
+      "reward": 1.0,
+      "submit_called": true,
+      "trajectory_diagnosis": "- The agent succeeded by iteratively locating two separate fragments of the password in a binary file, then manually concatenating them to form the correct 23-character string. - The first delegate produced a partial password (11 chars) and identified a second fragment containing “W54”, but did not combine them; the planner refined the search offsets for subsequent attempts. - The third delegate used `strings`, `dd`, and `foremost` to extract and confirm both fragments, then wrote the concatenated result to the required output file. - Verifier tests (`test_recovery_file_exists`, `test_password_match`) both passed, confirming the final file contains the exact required password.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  }
+]

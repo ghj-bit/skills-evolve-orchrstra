@@ -1,0 +1,1388 @@
+[
+  {
+    "name": "Environment Verification and Dependency Resolution",
+    "level": "subtask",
+    "description": "Before executing any Python script that depends on external libraries, verify the correct Python interpreter and ensure all required packages are installed in that environment. If packages are missing, install them inside the same environment that will run the script.",
+    "application_scenarios": [
+      "Running Python scripts that import scientific libraries like pgmpy, pandas, numpy",
+      "Executing code in Docker containers with multiple Python installations (system, venv, conda)",
+      "Debugging import errors during machine learning or data analysis pipelines",
+      "Setting up reproducible experiment environments in terminal-based tasks"
+    ],
+    "execution_principles": [
+      "Always check which python or python3 will be used by running `which python3` or `which /app/venv/bin/python3`",
+      "Before any pip install, confirm the target environment: use the full path (e.g., /app/venv/bin/pip) or ensure the virtual environment is activated",
+      "After installation, perform a quick import test with the same interpreter that will run the main script: `/app/venv/bin/python3 -c \"import <package>; print('ok')\"`",
+      "If an import fails, first check the site-packages list with `pip list` for the correct interpreter, not a different one",
+      "When using a venv, always use its explicit paths for both pip and python to avoid mixing with system packages",
+      "Document the environment setup steps (interpreter path, package versions) before proceeding to main script execution"
+    ],
+    "workflow": [
+      "identify_target_python_interpreter",
+      "check_package_availability_via_import_test",
+      "if_missing_install_using_same_interpreter",
+      "confirm_installation_with_second_import_test",
+      "print_success_message_with_interpreter_path",
+      "proceed_to_main_script_execution"
+    ],
+    "example": {
+      "situation": "A sub-agent needs to run a pgmpy structure learning script but the Docker container has both a system python3 and a venv at /app/venv/bin/python3. The script fails with ModuleNotFoundError: No module named 'pgmpy'.",
+      "steps": [
+        "Run: `/app/venv/bin/python3 -c \"import pgmpy\" 2>&1` to see the current error",
+        "Run: `/app/venv/bin/pip list | grep pgmpy` to check if installed in venv",
+        "If missing, run: `/app/venv/bin/pip install pgmpy`",
+        "Then run again: `/app/venv/bin/python3 -c \"import pgmpy; from pgmpy.estimators import HillClimbSearch; print('pgmpy ready')\"`",
+        "If successful, proceed to execute the main script using `/app/venv/bin/python3 /path/to/script.py`"
+      ]
+    },
+    "failure_cases_prevented": [
+      "import_module_not_found_error",
+      "pip_installs_to_wrong_interpreter",
+      "silent_execution_on_missing_dependency",
+      "using_system_python_when_venv_expected",
+      "repeated_failures_from_unresolved_environment_mismatch"
+    ],
+    "source": {
+      "task_id": "bn-fit-modify",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/bn-fit-modify/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/bn-fit-modify/agent/commands.log",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent never submitted and used all 8 attempts, achieving a reward of 0.0, indicating complete failure. - Repeated attempts to learn a Bayesian network structure using pgmpy consistently failed due to environment mismatches (system Python vs. venv, missing packages) and import errors. - The subagent frequently reported \"done\" with vague completion status (e.g., \"step1\", \"step2\") without actually capturing or verifying the script's output (e.g., learned edges were empty or never reported). - The planner continuously delegated to the same model with nearly identical instructions, failing to diagnose root causes or adjust the approach after repeated failures. - Critical mistakes included using `/app/venv/bin/python3` without ensuring pgmpy was installed in that venv, and writing scripts that either had syntax errors or produced no output, yet the subagent did not report the actual failure. - No validation step was ever performed to compare the learned DAG against any expected structure, and no submission was attempted.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Command Output Capture and Validation",
+    "level": "subtask",
+    "description": "After executing any command that produces stdout/stderr (especially Python scripts), explicitly capture the full output and validate that it contains expected content (e.g., number of edges, column names, non-empty results). Do not rely solely on exit codes or generic 'done' status; verify specific patterns to confirm the command actually succeeded.",
+    "application_scenarios": [
+      "Running data processing scripts that print results to stdout",
+      "Executing machine learning model training or structure learning that outputs edges or metrics",
+      "Parsing command outputs to extract structured information for next steps",
+      "Debugging long-running scripts where failure might not produce a non-zero exit code"
+    ],
+    "execution_principles": [
+      "Redirect both stdout and stderr to a file (e.g., `script.py > /tmp/output.log 2>&1`) and then inspect the file",
+      "After executing the command, print the first few lines and last few lines of the output to confirm it is non-empty and looks correct",
+      "For numeric outputs (e.g., number of edges), use `grep -c` or `wc -l` to verify count is greater than zero",
+      "If the output is expected to contain specific strings (e.g., 'Hill Climb edges'), grep for them and check exit status",
+      "Do not assume a command that returns exit code 0 actually produced useful output; many scripts exit 0 but print nothing or error messages to stderr",
+      "When using heredoc or multi-line commands, test the script by first running it with a smaller test to ensure syntax is correct"
+    ],
+    "workflow": [
+      "run_command_with_output_redirection_to_file",
+      "check_file_size_or_line_count",
+      "search_for_expected_keywords_in_output",
+      "if_expected_content_missing_print_full_output_and_mark_failure",
+      "extract_structured_data_if_needed",
+      "report_both_success_and_actual_output_to_planner"
+    ],
+    "example": {
+      "situation": "A sub-agent runs a Python script to learn a DAG from data. The script finishes without error, but the output is empty because Hill Climb Search found no edges. The sub-agent reports 'done' without realizing the result is invalid.",
+      "steps": [
+        "Run: `/app/venv/bin/python3 learn_structure.py > /tmp/dag_output.txt 2>&1`",
+        "Run: `wc -l /tmp/dag_output.txt` – returns 2 lines instead of expected 20+",
+        "Run: `cat /tmp/dag_output.txt` – prints only 'Columns: ...' and 'Shape: ...' with no edge lines",
+        "Run: `grep -i 'edge' /tmp/dag_output.txt` – returns nothing",
+        "Conclusion: Script did not produce edges; report 'Hill Climb found zero edges; script output incomplete' instead of 'done'",
+        "Then attempt alternative methods (e.g., PC algorithm) or adjust parameters before reporting final result"
+      ]
+    },
+    "failure_cases_prevented": [
+      "false_success_on_empty_output",
+      "ignoring_script_syntax_errors_that_dont_cause_nonzero_exit",
+      "missing_important_warnings_or_errors_stderr",
+      "reporting_done_when_actual_computation_failed_silently",
+      "overlooking_zero_result_that_should_be_nonzero"
+    ],
+    "source": {
+      "task_id": "bn-fit-modify",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/bn-fit-modify/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/bn-fit-modify/agent/commands.log",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent never submitted and used all 8 attempts, achieving a reward of 0.0, indicating complete failure. - Repeated attempts to learn a Bayesian network structure using pgmpy consistently failed due to environment mismatches (system Python vs. venv, missing packages) and import errors. - The subagent frequently reported \"done\" with vague completion status (e.g., \"step1\", \"step2\") without actually capturing or verifying the script's output (e.g., learned edges were empty or never reported). - The planner continuously delegated to the same model with nearly identical instructions, failing to diagnose root causes or adjust the approach after repeated failures. - Critical mistakes included using `/app/venv/bin/python3` without ensuring pgmpy was installed in that venv, and writing scripts that either had syntax errors or produced no output, yet the subagent did not report the actual failure. - No validation step was ever performed to compare the learned DAG against any expected structure, and no submission was attempted.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Write multiline Python test scripts to a file instead of using inline -c",
+    "level": "subtask",
+    "description": "When you need to run a multi-line Python script (especially one containing async/await, functions, or multiple statements), write it to a temporary .py file with cat/heredoc and execute that file with python3, instead of trying to embed newlines inside python3 -c.",
+    "application_scenarios": [
+      "Testing async functions that require multiple lines of code",
+      "Running integration tests with complex logic",
+      "Debugging scripts with conditional control flow",
+      "Executing any Python code that spans more than 3-4 lines"
+    ],
+    "execution_principles": [
+      "Use heredoc (cat > /tmp/test.py << 'EOF' ... EOF) to write the script",
+      "Ensure the script is written as a complete file before execution",
+      "Execute with python3 /tmp/test.py, not python3 -c",
+      "If the script produces output, capture it via the command exit code and stdout",
+      "Avoid using semicolons to compress multiple lines into one",
+      "Always verify the file was written correctly (wc -l, cat) before running"
+    ],
+    "workflow": [
+      "create_temp_file_path: decide a temporary file name (e.g., /tmp/test_script.py)",
+      "write_script_to_file: use cat with heredoc to write the complete Python code",
+      "verify_file_content: cat the file to ensure it is complete and correct",
+      "execute_script: run python3 /tmp/test_script.py",
+      "capture_and_report: observe exit code and output, report results"
+    ],
+    "example": {
+      "situation": "Need to test an async function run_tasks that handles KeyboardInterrupt. The test code is about 20 lines with multiple async defs.",
+      "steps": [
+        "cat > /tmp/test_interrupt.py << 'EOF'",
+        "import asyncio; import signal; import os",
+        "from run import run_tasks",
+        "",
+        "async def test_interrupt():",
+        "    ...  # full test logic",
+        "",
+        "asyncio.run(test_interrupt())",
+        "EOF",
+        "python3 /tmp/test_interrupt.py"
+      ]
+    },
+    "failure_cases_prevented": [
+      "syntax_error_from_embedded_newlines_in_c_string",
+      "infinite_retry_loop_with_identical_broken_command",
+      "hidden_newline_escaping_issues",
+      "inability_to_debug_multiline_scripts",
+      "wasted_attempts_on_invalid_one-liner_attempts"
+    ],
+    "source": {
+      "task_id": "cancel-async-tasks",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/cancel-async-tasks/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/cancel-async-tasks/agent/commands.log",
+      "reward": 1.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent successfully created the core async function with concurrency control and KeyboardInterrupt handling after iterative fixes, achieving the task's functional requirements. - A repeated mistake was using `python3 -c` with inline multiline Python code, which caused persistent syntax errors on the final test; the agent should have written a separate test script file instead. - Type hint errors (Callable/Awaitable not imported) caused early failures; the agent initially used sed replacements instead of rewriting the file with proper imports, leading to a cycle of broken code before a full rewrite resolved it. - The planner decomposed the task appropriately but the sub-agent lacked a robust pattern for executing complex multi-line Python tests in Docker, wasting attempts on the same broken command. - Final reward is 1.0 despite the failed test attempt, indicating the core implementation was correct and the test was not mandatory for success.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Import proper type hint classes (Callable, Awaitable) before using them in function signatures",
+    "level": "subtask",
+    "description": "When writing a Python function that uses type hints like Callable, Awaitable, or Iterator, always import them from collections.abc (Python 3.9+) or typing (earlier) at the top of the file. Never assume they are built-in; add explicit imports before defining the function.",
+    "application_scenarios": [
+      "Writing async functions with typed callable parameters",
+      "Creating files with complex type annotations in Docker containers",
+      "Generating Python code that must be importable without errors",
+      "Fixing NameError or TypeError caused by missing type hint imports"
+    ],
+    "execution_principles": [
+      "Use 'from collections.abc import Callable, Awaitable' for modern Python",
+      "Alternatively use 'from typing import Callable, Awaitable' for broader compatibility",
+      "Place imports at the very top of the file, before any code",
+      "Avoid using built-in functions (callable, await) as type hint replacements",
+      "After writing the file, test that it imports cleanly with python3 -c 'import module'",
+      "If a NameError occurs, rewrite the file with the correct import rather than using sed"
+    ],
+    "workflow": [
+      "open_file_for_rewrite: determine the file path",
+      "compose_imports: add the necessary import lines at the top",
+      "write_function_signature: use the imported names (e.g., list[Callable[[], Awaitable[None]]])",
+      "write_implementation: the rest of the code",
+      "verify_syntax: run python3 -c 'import ast; ast.parse(open(path).read())'",
+      "verify_import: run python3 -c 'import the_module' without errors"
+    ],
+    "example": {
+      "situation": "Need to create /app/run.py with an async function that accepts a list of callables returning awaitables.",
+      "steps": [
+        "cat > /app/run.py << 'EOF'",
+        "from collections.abc import Callable, Awaitable",
+        "",
+        "async def run_tasks(tasks: list[Callable[[], Awaitable[None]]], max_concurrent: int) -> None:",
+        "    ...",
+        "EOF",
+        "python3 -c 'import run'   # should succeed",
+        "python3 -c 'import ast; ast.parse(open(\"/app/run.py\").read())'"
+      ]
+    },
+    "failure_cases_prevented": [
+      "nameerror_callable_not_defined",
+      "nameerror_awaitable_not_defined",
+      "typeerror_builtin_function_or_method_not_subscriptable_from_using_callable_without_import",
+      "wasted_attempts_applying_sed_patches_instead_of_rewriting",
+      "circular_import_or_incomplete_type_hint_fixes"
+    ],
+    "source": {
+      "task_id": "cancel-async-tasks",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/cancel-async-tasks/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/cancel-async-tasks/agent/commands.log",
+      "reward": 1.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent successfully created the core async function with concurrency control and KeyboardInterrupt handling after iterative fixes, achieving the task's functional requirements. - A repeated mistake was using `python3 -c` with inline multiline Python code, which caused persistent syntax errors on the final test; the agent should have written a separate test script file instead. - Type hint errors (Callable/Awaitable not imported) caused early failures; the agent initially used sed replacements instead of rewriting the file with proper imports, leading to a cycle of broken code before a full rewrite resolved it. - The planner decomposed the task appropriately but the sub-agent lacked a robust pattern for executing complex multi-line Python tests in Docker, wasting attempts on the same broken command. - Final reward is 1.0 despite the failed test attempt, indicating the core implementation was correct and the test was not mandatory for success.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "extract_text_from_image_reliably",
+    "level": "subtask",
+    "description": "Given a PNG image containing pseudocode, install lightweight OCR tools and extract clean, machine-readable text in one or two steps, handling installation failures gracefully.",
+    "application_scenarios": [
+      "when the task requires reading text from a screenshot or scanned image",
+      "when the environment may lack tesseract or PIL",
+      "when the image contains code snippets with special characters",
+      "when the sub-agent has limited steps and must avoid deep package installation",
+      "when the extracted text must be directly usable in a script"
+    ],
+    "execution_principles": [
+      "always verify tool availability before running complex OCR commands",
+      "use apt-get update only once and cache the result",
+      "prefer python3 + pytesseract over imagemagick for text extraction",
+      "capture stderr and stdout separately to diagnose silent failures",
+      "after extraction, strip non-ASCII line noise and smart quotes",
+      "limit installation to essential packages: tesseract-ocr, python3-pil, python3-pytesseract",
+      "if OCR fails, fall back to reading raw bytes and manually cleaning them"
+    ],
+    "workflow": [
+      "check_if_tesseract_and_pil_installed",
+      "if_missing_install_with_apt_get_and_pip",
+      "run_tesseract_image_png_stdout_2_and_capture_output",
+      "also_run_python3_with_pytesseract_image_to_string",
+      "compare_both_outputs_and_select_cleanest_text",
+      "replace_unicode_quotes_and_non_ascii_artifacts",
+      "output_final_clean_text_for_next_step"
+    ],
+    "example": {
+      "situation": "Image /app/code.png contains pseudocode with smart quotes and unicode spaces.",
+      "steps": [
+        "apt-get install -y tesseract-ocr python3-pil 2>/dev/null",
+        "pip3 install pytesseract 2>/dev/null",
+        "tesseract /app/code.png stdout 2>/dev/null",
+        "python3 -c \"from PIL import Image; import pytesseract; print(pytesseract.image_to_string(Image.open('/app/code.png')))\"",
+        "manually clean output: replace \\u201c, \\u201d with regular quotes, remove stray spaces",
+        "write cleaned text to /tmp/pseudocode.txt"
+      ]
+    },
+    "failure_cases_prevented": [
+      "installing_entire_imagemagick_for_text_extraction",
+      "silent_ocr_failures_due_to_missing_dependencies",
+      "getting_pixel_data_instead_of_text",
+      "using_smart_quotes_that_break_python_scripts",
+      "wasting_steps_on_repeated_identical_ocr_attempts"
+    ],
+    "source": {
+      "task_id": "code-from-image",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/code-from-image/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/code-from-image/agent/commands.log",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The planner repeatedly issued OCR-heavy instructions without verifying that basic tools (tesseract, PIL) were correctly installed and callable, wasting attempts on partial installations and syntax errors. - Sub-agents failed to extract clean pseudocode from the image; they obtained pixel data (via imagemagick) and raw bytes with Unicode artifacts (smart quotes) but never normalized them into valid Python. - The agent never validated the final hash against an expected output or test case, so it could not detect that the guessed SALT (\"60000TBENCH-SALT\") was incorrect or that the extracted code's logic needed adjustment. - Redundant attempts (e.g., repeatedly computing SHA-256 of the image) consumed steps without progressing toward a correct implementation or submission. - The trajectory ended without any call to `submit` or writing a final correct `code.py`; the reward was 0.0, indicating complete failure.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "clean_and_implement_pseudocode_with_special_characters",
+    "level": "subtask",
+    "description": "After extracting pseudocode from an image, normalize Unicode-aware strings, detect and fix syntax errors, then write a working Python implementation that matches the intended logic exactly.",
+    "application_scenarios": [
+      "when pseudocode contains smart quotes, non-ASCII dashes, or invisible unicode characters",
+      "when the extracted code must be refactored into correct Python syntax",
+      "when the pseudocode defines a specific algorithm (e.g., SHA-256 with salt) to be reproduced",
+      "when the environment has a reference file (code.py) that contains erroneous but indicative code",
+      "when the final output must match a hidden test hash"
+    ],
+    "execution_principles": [
+      "first display raw bytes with cat -A or xxd to see hidden characters",
+      "replace Unicode left/right double quotes with standard ASCII double quotes",
+      "fix obvious typos: variable name misalignments, missing colons, incorrect function names",
+      "test the cleaned script against the original intent by running it and comparing intermediate values",
+      "if the task expects a specific output prefix, brute-force likely salt variations against the given image hash",
+      "always write the final working script to the expected location (e.g., /app/code.py) and verify it executes without error",
+      "do not hardcode salt guesses without cross-checking against the pseudocode's variable assignment"
+    ],
+    "workflow": [
+      "read_raw_bytes_of_reference_file_or_image_output",
+      "replace_all_unicode_quotes_with_ascii_quotes",
+      "fix_function_names_and_variable_alignments",
+      "identify_correct_salt_value_from_pseudocode",
+      "write_cleaned_python_script_to_temp_file",
+      "run_the_script_and_capture_output",
+      "compare_output_to_expected_prefix_or_hash",
+      "if_output_incorrect_adjust_salt_and_retry"
+    ],
+    "example": {
+      "situation": "Pseudocode shows 'GALT = 6\"0000TBENCH-SALT\\u201d' and the expected hash starts with 'bee26a'.",
+      "steps": [
+        "xxd /app/code.py | head -20",
+        "sed -i 's/\\xe2\\x80\\x9c/\"/g; s/\\xe2\\x80\\x9d/\"/g' /app/code.py",
+        "change 'GALT' to 'SALT', fix 'cha256' to 'hashlib.sha256', correct 'bex()' to 'hexdigest()'",
+        "set SALT = '60000TBENCH-SALT' as a first guess",
+        "run python3 /app/code.py; output hash does not start with bee26a -> try SALT = '6000TBENCH-SALT'",
+        "repeat with all plausible SALT variations until prefix matches",
+        "once matched, overwrite /app/code.py with the corrected script and run submit"
+      ]
+    },
+    "failure_cases_prevented": [
+      "writing_script_with_unicode_quotes_that_cause_syntaxerror",
+      "ignoring_obvious_typos_in_pseudocode_variable_names",
+      "assuming_first_salt_guess_is_correct_without_validation",
+      "not_using_reference_file_to_discover_hidden_characters",
+      "skipping_output_validation_against_expected_prefix"
+    ],
+    "source": {
+      "task_id": "code-from-image",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/code-from-image/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/code-from-image/agent/commands.log",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The planner repeatedly issued OCR-heavy instructions without verifying that basic tools (tesseract, PIL) were correctly installed and callable, wasting attempts on partial installations and syntax errors. - Sub-agents failed to extract clean pseudocode from the image; they obtained pixel data (via imagemagick) and raw bytes with Unicode artifacts (smart quotes) but never normalized them into valid Python. - The agent never validated the final hash against an expected output or test case, so it could not detect that the guessed SALT (\"60000TBENCH-SALT\") was incorrect or that the extracted code's logic needed adjustment. - Redundant attempts (e.g., repeatedly computing SHA-256 of the image) consumed steps without progressing toward a correct implementation or submission. - The trajectory ended without any call to `submit` or writing a final correct `code.py`; the reward was 0.0, indicating complete failure.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Writing robust git post-receive hooks for automated deployment",
+    "level": "subtask",
+    "description": "When setting up a git post-receive hook to automatically deploy pushed branches to a web server directory, ensure the hook correctly filters for the target branch (e.g., master), sets the appropriate GIT_WORK_TREE and GIT_DIR environment variables or uses the --work-tree flag, and handles the stdin refs as a loop. Always test the hook with an actual git push from a properly configured local clone.",
+    "application_scenarios": [
+      "Setting up git web deployment workflows",
+      "Configuring CI/CD with bare git repos",
+      "Automating static site deployment from git pushes",
+      "Creating auto-deploy hooks for custom environments",
+      "Implementing post-receive hooks in Docker containers",
+      "Testing git hook functionality"
+    ],
+    "execution_principles": [
+      "Always filter pushes by target branch using refs/heads/ pattern",
+      "Use `git --work-tree=<path> checkout -f <branch>` inside the hook",
+      "Set user.email and user.name before committing in test scenarios",
+      "Reset the branch reference in the bare repo if the hook was missing or broken",
+      "Capture full stdout/stderr from push to see hook output",
+      "Make sure the hook script is executable (chmod +x)",
+      "Verify deployment by checking files in work tree after push"
+    ],
+    "workflow": [
+      "create_bare_repo",
+      "write_hook_script_with_branch_filtering",
+      "set_hook_executable",
+      "clone_repo_locally",
+      "configure_git_user_identity",
+      "add_and_commit_a_file",
+      "push_to_origin_master",
+      "verify_file_exists_in_work_tree_directory"
+    ],
+    "example": {
+      "situation": "You have a bare git repo at /srv/git/project.git and want to deploy content to /var/www/html whenever a push to master occurs.",
+      "steps": [
+        "Create /srv/git/project.git",
+        "Write post-receive hook: #!/bin/bash\\nwhile read oldrev newrev refname; do\\n  if [ \"$refname\" = \"refs/heads/master\" ]; then\\n    echo \\\"Deploying master to /var/www/html\\\"\\n    git --work-tree=/var/www/html checkout -f master\\n  fi\\ndone",
+        "chmod +x /srv/git/project.git/hooks/post-receive",
+        "Clone the repo to /tmp/testclone",
+        "Configure git user.email and user.name in that clone",
+        "Create a test file and push",
+        "Check that the test file appears in /var/www/html"
+      ]
+    },
+    "failure_cases_prevented": [
+      "hook_not_filtering_branch",
+      "hook_execution_fails_due_to_missing_identity",
+      "deployment_not_triggered_on_push",
+      "work_tree_path_incorrect_or_permissions",
+      "hook_not_executable",
+      "cannot_verify_deployment_after_push"
+    ],
+    "source": {
+      "task_id": "configure-git-webserver",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/configure-git-webserver/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/configure-git-webserver/agent/commands.log",
+      "reward": 0.0,
+      "submit_called": true,
+      "trajectory_diagnosis": "- The agent initially failed to correctly modify lighttpd configuration due to a sed escaping error, then overwrote the entire config file, requiring multiple corrections. - The post-receive hook was written too simply without branch filtering, causing failures; later versions were improved but lacked proper testing with an actual git push. - The agent wasted several attempts debugging the hook manually instead of simulating a real push with proper git identity configuration. - After resetting the master branch and pushing with correct git user setup, the hook successfully deployed files, and end-to-end verification passed. - The final submission was made, but the reward of 0.0 indicates the benchmark may have expected additional verification or a different submission format.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Configuring and starting lighttpd web server in Docker without systemd",
+    "level": "subtask",
+    "description": "To run lighttpd in a Docker container (without systemd), modify the configuration file to set server.port and server.document-root using echo/append or sed with careful escaping, then start the server directly with `lighttpd -f /etc/lighttpd/lighttpd.conf`. Do not use systemctl or service commands as they rely on systemd. Verify the server is running by checking with `ps aux | grep lighttpd` and testing with curl.",
+    "application_scenarios": [
+      "Configuring web servers in minimal Docker containers",
+      "Setting up lighttpd for static content serving",
+      "Adjusting lighttpd port and document root in containerized environments",
+      "Debugging lighttpd configuration errors",
+      "Replacing systemd-dependent service commands with direct execution"
+    ],
+    "execution_principles": [
+      "Use echo or sed with proper escaping to modify config files",
+      "Prefer appending lines (>>) over overwriting to preserve existing settings",
+      "Start lighttpd with '-f' flag to specify config file",
+      "Avoid systemctl, service, or systemd commands",
+      "Check running processes with ps aux",
+      "Test server response with curl -s http://localhost:<port>/",
+      "Inspect config file changes with cat before starting",
+      "Ensure the document-root directory exists and has correct permissions"
+    ],
+    "workflow": [
+      "locate_lighttpd_config_file",
+      "set_server_port_to_desired_value",
+      "set_server_document_root_correctly",
+      "verify_config_with_cat",
+      "start_lighttpd_with_lighttpd_f_command",
+      "verify_running_with_ps_aux",
+      "test_web_server_response_with_curl",
+      "if_fails_check_stdout_and_error_log"
+    ],
+    "example": {
+      "situation": "You are in a Docker container and need to start lighttpd on port 8080 serving /var/www/html",
+      "steps": [
+        "Check current config: cat /etc/lighttpd/lighttpd.conf",
+        "Set port: 'echo \"server.port = 8080\" >> /etc/lighttpd/lighttpd.conf' or use sed",
+        "Set document root: 'echo \"server.document-root = \\\"/var/www/html\\\"\" >> ...'",
+        "Start: 'lighttpd -f /etc/lighttpd/lighttpd.conf'",
+        "Verify: 'ps aux | grep lighttpd'",
+        "Test: 'curl -s http://localhost:8080/'"
+      ]
+    },
+    "failure_cases_prevented": [
+      "unnecessary_sed_escaping_errors",
+      "overwriting_config_file_flattening_all_settings",
+      "trying_to_use_systemctl_in_docker",
+      "not_verifying_server_is_running",
+      "forgetting_to_set_document_root_permissions",
+      "server_not_listening_on_expected_port"
+    ],
+    "source": {
+      "task_id": "configure-git-webserver",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/configure-git-webserver/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/configure-git-webserver/agent/commands.log",
+      "reward": 0.0,
+      "submit_called": true,
+      "trajectory_diagnosis": "- The agent initially failed to correctly modify lighttpd configuration due to a sed escaping error, then overwrote the entire config file, requiring multiple corrections. - The post-receive hook was written too simply without branch filtering, causing failures; later versions were improved but lacked proper testing with an actual git push. - The agent wasted several attempts debugging the hook manually instead of simulating a real push with proper git identity configuration. - After resetting the master branch and pushing with correct git user setup, the hook successfully deployed files, and end-to-end verification passed. - The final submission was made, but the reward of 0.0 indicates the benchmark may have expected additional verification or a different submission format.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Unicode-safe dataset content inspection",
+    "level": "subtask",
+    "description": "Print dataset contents or other data containing Unicode characters using methods that guarantee ASCII-only output, avoiding encoding crashes in terminal environments with GBK or other non-UTF-8 defaults.",
+    "application_scenarios": [
+      "Exploring HuggingFace datasets with non-ASCII text columns",
+      "Debugging JSON payloads that contain emoji or special characters",
+      "Inspecting system or command output that may include Unicode in constrained environments",
+      "Generating logs from Python scripts that will be captured by a shell with limited encoding support"
+    ],
+    "execution_principles": [
+      "Always export PYTHONIOENCODING=utf-8 and LANG=C.UTF-8 before running Python code that may output Unicode",
+      "Never print raw strings from data fields; use repr() or json.dumps(..., ensure_ascii=True) instead",
+      "When reading files back, use cat with LC_ALL=C to avoid encoding interference",
+      "If errors persist, redirect Python stdout to a file and read the file with cat using ASCII-safe encoding",
+      "Prefer `-c` scripts with heredoc to avoid quoting issues that may reintroduce Unicode",
+      "Test a single example first before printing many rows to isolate encoding failures"
+    ],
+    "workflow": [
+      "export_language_utf8_variables",
+      "install_required_packages_silently",
+      "write_python_script_to_file_using_heredoc",
+      "within_script_set_os_environ_for_encoding",
+      "use_repr_or_ensure_ascii_for_all_print_statements",
+      "run_script_and_redirect_stdout_to_file",
+      "read_file_using_cat_with_lc_all_set",
+      "inspect_output_for_completeness"
+    ],
+    "example": {
+      "situation": "A sub-agent needs to print the first three rows of a HuggingFace dataset that contains emoji and multilingual text, but the terminal uses GBK encoding.",
+      "steps": [
+        "export LANG=C.UTF-8 LC_ALL=C.UTF-8 PYTHONIOENCODING=utf-8",
+        "cat > /tmp/inspect.py << 'EOF'\"",
+        "Inside script: use repr(ex['text']) and json.dumps(ex['data'], ensure_ascii=True)",
+        "python3 /tmp/inspect.py > /tmp/out.txt 2>&1",
+        "cat /tmp/out.txt"
+      ]
+    },
+    "failure_cases_prevented": [
+      "gbk_codec_encode_error_on_unicode_characters",
+      "lost_output_due_to_encoding_crash_mid_script",
+      "incomplete_data_inspection_in_restricted_shells",
+      "repeated_attempts_with_same_broken_approach"
+    ],
+    "source": {
+      "task_id": "count-dataset-tokens",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/count-dataset-tokens/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/count-dataset-tokens/agent/commands.log",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The planner decomposed the task into dataset exploration and token counting, but the sub-agent repeatedly crashed due to a 'gbk' codec encoding error when printing Unicode dataset content. - Despite multiple attempts with different workarounds (setting PYTHONIOENCODING, locale, redirecting to files), the error persisted because the sub-agent's own stdout capture still used GBK and the print statements were not fully sanitized. - The planner wasted many attempts retrying similar exploration scripts instead of recognizing the encoding root cause and instructing the sub-agent to use fully ASCII-safe output (e.g., base64, avoid any raw Unicode print). - The successful attempt 8 (in the command log) used a simpler script with `repr()` and `json.dumps(ensure_ascii=True)` and ran without error, indicating that the encoding issue can be avoided by never printing raw Unicode strings. - The trajectory lacks validation of tokenizer loading and token counting because the agent never moved past the data inspection phase due to repeated encoding failures.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Systematic encoding error diagnosis and mitigation",
+    "level": "subtask",
+    "description": "When a sub-agent crashes with a 'gbk' or similar encoding error, immediately isolate the problematic output and switch to file-based communication using base64 or hex encoding to bypass the terminal's encoding layer entirely.",
+    "application_scenarios": [
+      "Any command that prints non-ASCII data to stdout in a terminal with unknown or misconfigured encoding",
+      "Diagnosing 'illegal multibyte sequence' errors during dataset exploration",
+      "Working in Docker containers that may lack UTF-8 locale generation",
+      "Transferring inspection results from Python scripts back to the planner without encoding corruption"
+    ],
+    "execution_principles": [
+      "On first encoding error, assume the terminal/sub-agent capture layer does not support Unicode; do not retry the same print commands",
+      "Immediately switch to writing output to a file and reading it with `cat | base64` to get an ASCII representation",
+      "Use Python's `sys.stdout.reconfigure(encoding='utf-8')` if available, but as fallback rely on base64",
+      "For small outputs, encode the entire result as base64 in Python and print only that encoded string",
+      "Avoid any `print()` statement that includes a raw variable; wrap all data in `repr()` or serialize to JSON with `ensure_ascii=True`",
+      "Test a minimal script (e.g., just print a single string) to confirm encoding is fixed before running the full exploration"
+    ],
+    "workflow": [
+      "detect_gbk_or_encoding_error_in_previous_attempt",
+      "prepare_minimal_test_script_that_prints_only_ascii",
+      "if_test_passes_gradually_add_content_while_wrapping_in_repr",
+      "otherwise_base64_encode_entire_output_in_python",
+      "write_base64_string_to_stdout_and_have_subagent_capture_it",
+      "decode_base64_on_planner_side_to_recover_raw_data",
+      "test_full_inspection_with_safe_method_before_proceeding"
+    ],
+    "example": {
+      "situation": "The sub-agent's script `print(dataset['train'][0])` crashes with 'gbk codec can't encode character' when the dataset contains emoji.",
+      "steps": [
+        "cat > /app/fix_test.py << 'EOF'",
+        "import base64, json; data = {'test': 'emoji: 📝'}; encoded = base64.b64encode(json.dumps(data, ensure_ascii=True).encode()).decode(); print(encoded)",
+        "python3 /app/fix_test.py | base64 -d; echo",
+        "If that works, apply same technique to actual dataset: serialize entire inspection result as base64 JSON",
+        "Only print the base64 string, ensuring output is pure ASCII"
+      ]
+    },
+    "failure_cases_prevented": [
+      "repeated_same_encoding_error_across_attempts",
+      "wasted_effort_on_locale_or_env_fixes_that_do_not_help",
+      "loss_of_all_dataset_content_due_to_crash",
+      "inability_to_debug_because_output_is_silently_corrupted"
+    ],
+    "source": {
+      "task_id": "count-dataset-tokens",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/count-dataset-tokens/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/count-dataset-tokens/agent/commands.log",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The planner decomposed the task into dataset exploration and token counting, but the sub-agent repeatedly crashed due to a 'gbk' codec encoding error when printing Unicode dataset content. - Despite multiple attempts with different workarounds (setting PYTHONIOENCODING, locale, redirecting to files), the error persisted because the sub-agent's own stdout capture still used GBK and the print statements were not fully sanitized. - The planner wasted many attempts retrying similar exploration scripts instead of recognizing the encoding root cause and instructing the sub-agent to use fully ASCII-safe output (e.g., base64, avoid any raw Unicode print). - The successful attempt 8 (in the command log) used a simpler script with `repr()` and `json.dumps(ensure_ascii=True)` and ran without error, indicating that the encoding issue can be avoided by never printing raw Unicode strings. - The trajectory lacks validation of tokenizer loading and token counting because the agent never moved past the data inspection phase due to repeated encoding failures.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "fallback_tool_usage_and_network_resilience",
+    "level": "subtask",
+    "description": "When a required command-line tool is missing and package installation fails due to network errors, immediately fall back to pre-installed or built-in alternatives without retrying the same failing install command.",
+    "application_scenarios": [
+      "Missing common binary analysis tools like file, xxd, hexdump",
+      "Package manager (apt, apk) fails due to network proxy issues or repository errors",
+      "Container environments with limited or restricted network access",
+      "Tasks requiring hex dumps, file type identification, or binary inspection",
+      "Scenarios where custom script dependencies cannot be fetched"
+    ],
+    "execution_principles": [
+      "Never repeat a failing apt-get install more than once without switching strategy",
+      "Maintain a mental list of built-in replacements: od -A x -t x1z for xxd, bash 'printf' for hex conversion, readelf for ELF headers instead of needing file",
+      "Use 'command -v <tool>' to check existence before attempting installation",
+      "Check for commonly available tools like xxd from vim-common or base64 before apt",
+      "If network is unreliable, still try once but fall back quickly",
+      "Prefer readelf, objdump, and strings over installing file or xxd when they are already present",
+      "Document the fallback chain in the script or command sequence so sub-agents follow it"
+    ],
+    "workflow": [
+      "check_if_command_exists using 'which' or 'command -v'",
+      "if_not_found_and_network_is_working_attempt_install_once_only",
+      "if_install_fails_identify_built_in_equivalent_tool",
+      "run_equivalent_tool_with_same_goal_but_different_flags",
+      "if_still_not_available_use_od_or_printf_or_bash_hex_dump",
+      "report_which_fallback_was_used_in_output"
+    ],
+    "example": {
+      "situation": "Need to hex dump first 100 bytes of a binary file, but 'xxd' is not installed and apt-get update fails due to network error.",
+      "steps": [
+        "Check with 'which xxd' → not found",
+        "Try 'apt-get update && apt-get install -y xxd' → fails with network error",
+        "Fallback 1: 'od -A x -t x1z -N 100 /app/a.out'",
+        "If od also absent, use 'head -c 100 /app/a.out | od -A x -t x1z'",
+        "Alternatively, use bash: 'for ((i=0;i<100;i++)); do printf '%02x ' \"\\x$(dd if=/app/a.out bs=1 skip=$i count=1 2>/dev/null | od -An -tx1)\"; done'",
+        "Report that xxd was unavailable but od provided equivalent output."
+      ]
+    },
+    "failure_cases_prevented": [
+      "repeated_network_install_attempts_wasting_time",
+      "agent_stuck_on_missing_tool_and_abandoning_task",
+      "incomplete_analysis_due_to_assumed_tool_absence",
+      "blindly_assuming_xxd_or_file_are_always_present",
+      "ignoring_simple_utilities_like_od_or_readelf_that_are_already_installed"
+    ],
+    "source": {
+      "task_id": "extract-elf",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/extract-elf/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/extract-elf/agent/commands.log",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The planner repeatedly delegated binary analysis without specifying an extraction target or submission criteria, leading to 8 unfocused attempts. - Sub-agents wasted effort installing missing tools (file, xxd) via apt-get, which failed due to network connectivity issues, yet they kept retrying instead of using pre-installed alternatives (od, readelf, objdump). - Attempts to write a custom Node.js script failed due to syntax errors and missing modules, and the sub-agents did not use incremental testing or syntax checkers to fix the script. - The sub-agents never validated output or checked whether the required extraction (likely specific memory values or an ELF component) was produced, leading to repetitive but unproductive command sequences. - The trajectory shows a pattern of collecting large amounts of binary data but no targeted extraction, and no final submission was made (submit_called false).",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "incremental_script_creation_and_syntax_verification",
+    "level": "subtask",
+    "description": "When writing a custom script (Node.js, Python, bash) to parse or transform data, write it step by step, syntax-check it before execution, and test on small inputs to avoid runtime errors from missing modules or malformed code.",
+    "application_scenarios": [
+      "Creating a Node.js script to parse ELF headers or binary sections",
+      "Writing a Python script to extract specific bytes from a file",
+      "Generating bash scripts that manipulate command output with complex pipelines",
+      "Debugging a script that failed due to missing closing brackets or imports",
+      "Any task where the agent must generate non-trivial code inside a container"
+    ],
+    "execution_principles": [
+      "Always write a minimal skeleton first, then run a syntax check (e.g., 'node --check script.js') before executing",
+      "If a syntax error occurs, inspect the error line and fix it without rewriting the whole script",
+      "Use heredocs or echo with proper escaping to avoid shell interpretation issues",
+      "Test critical sections (e.g., reading a file, parsing a header) in isolation using interactive 'node -e' commands",
+      "When using BigInt or Buffer methods, validate with small known test bytes first",
+      "Prefer using built-in Node.js modules (fs, buffer) and avoid external packages unless absolutely necessary",
+      "If the script still fails, print intermediate variables (console.log) to locate the exact failure point"
+    ],
+    "workflow": [
+      "decide_language_based_on_available_interpreters",
+      "write_minimal_version_with_only_core_logic",
+      "run_syntax_check_before_full_execution",
+      "fix_any_syntax_errors_by_reading_the_error_message_precisely",
+      "execute_script_on_small_test_input_or_first_100_bytes",
+      "if_runtime_error_occurs_add_console_log_statements_for_debugging",
+      "incrementally_add_complexity_while_rerunning_syntax_checks",
+      "once_correct_apply_to_full_input"
+    ],
+    "example": {
+      "situation": "Need to write a Node.js script that reads /app/a.out and prints the entry point address, but earlier attempt had syntax error 'missing )'.",
+      "steps": [
+        "First test reading the file: 'node -e \"const fs=require('fs');console.log(fs.readFileSync('/app/a.out').length);\"'",
+        "Then write skeleton with correct syntax using cat heredoc: 'cat > /tmp/parse.js << 'EOF'\\nconst fs=require('fs');\\nconst d=fs.readFileSync('/app/a.out');\\nconsole.log('ok');\\nEOF'",
+        "Run 'node --check /tmp/parse.js' → success",
+        "Add ELF header parsing line by line, each time running node --check",
+        "When adding BigUInt64LE, wrap in Number() or use .toString() to avoid type issues",
+        "Test with 'node /tmp/parse.js' and check output matches expected entry from readelf",
+        "Only after correct, expand to full script"
+      ]
+    },
+    "failure_cases_prevented": [
+      "wasting_attempts_on_script_with_syntax_errors",
+      "running_script_that_crashes_immediately_and_wastes_retry_budget",
+      "not_detecting_missing_closing_braces_or_parentheses",
+      "using_unavailable_modules_without_checking",
+      "blindly_regenerating_identical_faulty_script_multiple_times",
+      "ignoring_simple_unit_testing_before_full_execution"
+    ],
+    "source": {
+      "task_id": "extract-elf",
+      "attempt": "attempt_0",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/extract-elf/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_0/extract-elf/agent/commands.log",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The planner repeatedly delegated binary analysis without specifying an extraction target or submission criteria, leading to 8 unfocused attempts. - Sub-agents wasted effort installing missing tools (file, xxd) via apt-get, which failed due to network connectivity issues, yet they kept retrying instead of using pre-installed alternatives (od, readelf, objdump). - Attempts to write a custom Node.js script failed due to syntax errors and missing modules, and the sub-agents did not use incremental testing or syntax checkers to fix the script. - The sub-agents never validated output or checked whether the required extraction (likely specific memory values or an ELF component) was produced, leading to repetitive but unproductive command sequences. - The trajectory shows a pattern of collecting large amounts of binary data but no targeted extraction, and no final submission was made (submit_called false).",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Reliable source code download and archive verification",
+    "level": "subtask",
+    "description": "Download a software source archive from the internet, verify its integrity, and extract it into a working directory. This skill ensures that the downloaded file is a valid compressed archive (tar.gz, zip, etc.) before attempting extraction or build.",
+    "application_scenarios": [
+      "Fetching any open-source project source code from a URL",
+      "Downloading dependencies or libraries not available in package managers",
+      "Retrieving specific version releases from GitHub, FTP, or project sites",
+      "Handling redirects, HTML fallback pages, and rate-limited APIs during download",
+      "Automated build scripts that must validate external inputs"
+    ],
+    "execution_principles": [
+      "Always check HTTP response status code (200 OK) before treating the download as successful",
+      "Inspect the first few bytes of the downloaded file (e.g., file command or head -c) to confirm it is a binary archive (gzip, zip, etc.), not an HTML error page",
+      "Use wget with --content-disposition and --timestamping for robust downloads; fallback to curl -L if needed",
+      "Set a timeout and retry limit to avoid hanging on broken connections",
+      "After extraction, verify that expected files or directories exist (e.g., a configure script, Makefile, or README)",
+      "If initial URL fails, try alternative mirrors, version tags, or API endpoints before escalating"
+    ],
+    "workflow": [
+      "determine_candidate_urls",
+      "attempt_download_with_status_check",
+      "inspect_file_type_via_head_or_file",
+      "if_not_valid_archive_try_alternative_url_or_method",
+      "verify_download_integrity_with_checksum_if_available",
+      "extract_archive_into_target_directory",
+      "confirm_presence_of_key_build_files",
+      "report_success_or_failure_with_specific_reason"
+    ],
+    "example": {
+      "situation": "Need to download POV-Ray 2.2 source from an old FTP server. A previous attempt obtained an HTML page instead of a tar.gz file.",
+      "steps": [
+        "curl -sI 'https://example.com/povray-2.2.tar.gz' | grep -i 'content-type' → check if it's application/gzip",
+        "wget --content-disposition 'https://example.com/povray-2.2.tar.gz' -O povray.tmp",
+        "file povray.tmp → verify it says 'gzip compressed data' not 'HTML document'",
+        "if not gzip, inspect HTTP response body with head -c 200 to see if it's an error page",
+        "if error, search for correct URL via GitHub API tags or official download page links",
+        "after correct download, tar xzf povray-2.2.tar.gz && ls extracted_dir/ | grep -E 'configure|Makefile'"
+      ]
+    },
+    "failure_cases_prevented": [
+      "downloading_html_instead_of_archive",
+      "extracting_invalid_data_into_build_directory",
+      "repeating_same_failed_url_multiple_times",
+      "unnoticed_redirect_to_404_page",
+      "silent_truncated_downloads_causing_build_failures"
+    ],
+    "source": {
+      "task_id": "build-pov-ray",
+      "attempt": "attempt_1",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/build-pov-ray/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/build-pov-ray/agent/commands.log",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent exhausted all 8 attempts without building POV-Ray; the core failure was inability to obtain a valid source archive after repeated download attempts. - Network issues caused 404 errors during package installation, but the agent never verified whether critical tools (gcc, make) were successfully installed before proceeding. - Multiple download attempts returned HTML pages or empty responses, yet the agent did not check the downloaded file type, HTTP status, or try alternative retrieval methods. - The sub-agent frequently diverged from precise instructions (e.g., installing many extra packages), wasting steps and masking the actual source-acquisition problem. - The planner decomposed the task into exploration and download phases but lacked validation checkpoints to detect failures early and redirect strategy.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Robust package installation with error recovery and validation",
+    "level": "subtask",
+    "description": "Install required system packages (build dependencies, libraries) using apt-get or equivalent, handle transient network failures, and verify that critical tools are present after installation. This skill prevents silent failures when mirrors are stale or network is unreliable.",
+    "application_scenarios": [
+      "Setting up build environments in ephemeral containers with restricted network",
+      "Installing compilers, libraries, and development headers for compilation tasks",
+      "Recovering from 404 errors or corrupted package cache without aborting entire build",
+      "Ensuring runtime dependencies are actually available before proceeding to compilation",
+      "Handling partial installation when some packages are already present"
+    ],
+    "execution_principles": [
+      "Always run apt-get update before install to refresh package lists, even if recently updated",
+      "Install packages one logical group at a time (e.g., build-essential, then libraries) and validate each group",
+      "After each install command, check exit code AND verify that key binaries exist (which gcc make), not just rely on apt exit code",
+      "If apt-get returns 404, try installing the same packages without version pinning or switch to alternative mirrors (archive.ubuntu.com vs security.ubuntu.com)",
+      "Avoid installing large dependency chains blindly; first check what is already installed with dpkg -l or which",
+      "Use --no-install-recommends to minimize packages and reduce error surface",
+      "If a package fails, retry with a single package at a time to isolate the problematic dependency"
+    ],
+    "workflow": [
+      "check_currently_installed_tools_and_libraries",
+      "determine_minimal_package_list_for_task",
+      "apt_get_update_quiet",
+      "install_each_package_group_separately_along_with_validation",
+      "after_each_group_verify_key_binaries_with_which_or_type",
+      "if_install_fails_try_alternative_mirror_or_downgrade_packages",
+      "log_successful_and_failed_packages_for_debugging",
+      "proceed_only_when_all_required_tools_are_available"
+    ],
+    "example": {
+      "situation": "Need build-essential and libx11-dev on Ubuntu 24.04, but apt-get returns 404 for certain package versions due to stale local mirror.",
+      "steps": [
+        "dpkg -l | grep -E 'gcc|g++|make|libx11-dev' → see what's already installed",
+        "apt-get update -qq",
+        "apt-get install -y build-essential; which gcc → if missing, check error (maybe 404)",
+        "if 404, run apt-cache policy build-essential to see available versions",
+        "try apt-get install -y gcc-14 g++-14 make (specific versions from cache)",
+        "verify gcc --version returns a version string",
+        "install libx11-dev separately: apt-get install -y libx11-dev 2>&1 | grep -v '404'; if fails, find and install an older compatible version manually"
+      ]
+    },
+    "failure_cases_prevented": [
+      "assuming_package_installed_successfully_when_apt_exit_0_but_package_missing",
+      "wasting_attempts_on_broken_package_cache",
+      "ignoring_404_errors_and_proceeding_to_build_without_dependencies",
+      "installing_unnecessary_packages_that_introduce_conflicts",
+      "failing_to_detect_that_gcc_or_make_were_not_installed"
+    ],
+    "source": {
+      "task_id": "build-pov-ray",
+      "attempt": "attempt_1",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/build-pov-ray/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/build-pov-ray/agent/commands.log",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent exhausted all 8 attempts without building POV-Ray; the core failure was inability to obtain a valid source archive after repeated download attempts. - Network issues caused 404 errors during package installation, but the agent never verified whether critical tools (gcc, make) were successfully installed before proceeding. - Multiple download attempts returned HTML pages or empty responses, yet the agent did not check the downloaded file type, HTTP status, or try alternative retrieval methods. - The sub-agent frequently diverged from precise instructions (e.g., installing many extra packages), wasting steps and masking the actual source-acquisition problem. - The planner decomposed the task into exploration and download phases but lacked validation checkpoints to detect failures early and redirect strategy.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Implementing a logic gate circuit from simulator specification",
+    "level": "subtask",
+    "description": "Given the simulator source code and a target computation (e.g., Fibonacci modulo 2^32), parse the gate format from the simulator’s `parse_gates` function, derive the required signal operations, and generate a correct `gates.txt` using a script or stepwise composition.",
+    "application_scenarios": [
+      "Tasks requiring construction of a custom circuit file for a gate-level simulator",
+      "Any task where the output must be a file with sequential logic gate definitions",
+      "Scenarios where the simulator uses a specific line format like `outN = outA OP outB`",
+      "When the required computation is iterative and must be unrolled over many steps"
+    ],
+    "execution_principles": [
+      "Read the simulator’s `parse_gates` function to understand exactly which operators and syntax are accepted",
+      "Identify the number of input signals (e.g., 32 for bits of input number) and output signals",
+      "Map the computation into a series of gate operations with unique output signal indices",
+      "Use a script (bash/python) to generate repetitive gate lines instead of manual typing",
+      "Base signal indices sequentially and ensure no gaps or conflicts",
+      "Validate the format by checking that each line matches the pattern `out<num> = <operation>`"
+    ],
+    "workflow": [
+      "examine_parse_gates_function_in_sim.c",
+      "note_accepted_operations_and_line_format",
+      "determine_required_output_signals_and_intermediate_signals",
+      "design_the_circuit_as_a_list_of_gate_definitions",
+      "generate_the_full_gates_file_using_a_script",
+      "verify_line_count_and_format_with_head_tail_and_wc",
+      "compile_and_run_the_simulator_with_a_small_input_to_confirm_correctness"
+    ],
+    "example": {
+      "situation": "Need to build a circuit that outputs Fibonacci numbers modulo 32 bits. The simulator accepts lines like `out0 = out1` (copy), `out2 = out0 ^ out1` (XOR). Input bits occupy signals 0..31.",
+      "steps": [
+        "cat /app/sim.c | grep -A 50 'void parse_gates' to capture parsing logic",
+        "Identify that the parser handles COPY, NOT, AND, OR, XOR, and also direct constants '0' or '1'",
+        "Plan signals: assign input bits to out0..out31 (already set by simulator), then compute Fibonacci using adder gates",
+        "Write a script (e.g., bash loop) that for each step i from 0 to 31999 generates gate lines for the Fibonacci recurrence using XOR and AND for addition",
+        "Append all lines to /app/gates.txt and ensure total lines match expected step count",
+        "Run wc -l /app/gates.txt to confirm"
+      ]
+    },
+    "failure_cases_prevented": [
+      "manually_writing_incomplete_or_misformatted_gate_lines",
+      "misunderstanding_accepted_operator_syntax",
+      "creating_circuit_without_validating_against_simulator_parser",
+      "overwriting_gates_txt_without_backup",
+      "using_incorrect_signal_indexes_or_duplicate_outputs"
+    ],
+    "source": {
+      "task_id": "circuit-fibsqrt",
+      "attempt": "attempt_1",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/circuit-fibsqrt/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/circuit-fibsqrt/agent/commands.log",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent repeatedly re-read `sim.c` and `gates.txt` across 8 attempts without ever generating a correct gate circuit for the Fibonacci computation. - Subagents frequently modified `gates.txt` despite explicit instructions not to, creating conflicting or incomplete gate definitions. - The planner never directed a systematic approach: understand the simulator’s gate format, derive the required signal operations for Fibonacci modulo 2^32, and generate the full 32,000-line file. - No validation step (compile + run with a test input) was ever performed to verify the circuit’s correctness. - The agent exhausted all attempts on repetitive read-only actions, failing to produce any working submission.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Validating a generated circuit by running the simulator with known inputs",
+    "level": "subtask",
+    "description": "After constructing `gates.txt`, compile the simulator and run it with a small known input (e.g., Fibonacci number) to verify the output matches the expected result, then iterate if necessary.",
+    "application_scenarios": [
+      "Tasks where the correctness of a generated circuit must be proven before final submission",
+      "Any workflow involving a compiled simulator and a custom gate file",
+      "Scenarios where multiple test cases can be run quickly to catch logic errors",
+      "When the circuit is too large to manually inspect and must be validated dynamically"
+    ],
+    "execution_principles": [
+      "Always compile the simulator (`gcc -o sim sim.c`) before running tests",
+      "Choose a small, easy-to-verify input (e.g., fib(0)=0, fib(1)=1) and run the simulator with that value",
+      "Compare the printed output (decimal unsigned int) to the expected Fibonacci value",
+      "If mismatch occurs, inspect the generated gates for the earliest signal that produces wrong value",
+      "Use incremental validation: first test a trivial copy circuit, then a single XOR, before full circuit",
+      "Log the exact command and output to avoid confusion"
+    ],
+    "workflow": [
+      "compile_the_simulator_with_gcc",
+      "select_a_small_known_fibonacci_input",
+      "run_simulator_with_that_input_and_capture_output",
+      "compare_output_to_expected_fibonacci_value",
+      "if_output_matches_proceed_with_more_test_cases",
+      "if_output_differs_analyze_the_gates_file_for_errors",
+      "fix_the_gates_file_and_repeat_validation"
+    ],
+    "example": {
+      "situation": "Just generated gates.txt for Fibonacci. Need to verify correctness before spending attempts on full simulation.",
+      "steps": [
+        "Run: gcc -o sim /app/sim.c",
+        "Run: ./sim 0 (Fibonacci of 0 should be 0)",
+        "Run: echo $? or capture stdout: should print 0",
+        "Run: ./sim 1 (Fibonacci of 1 should be 1)",
+        "Observe output: if 0 is printed, circuit is wrong; if 1, proceed",
+        "Run: ./sim 2 (expected 1), ./sim 3 (expected 2) to gain confidence"
+      ]
+    },
+    "failure_cases_prevented": [
+      "submitting_without_ever_running_the_simulator",
+      "assuming_circuit_is_correct_without_testing",
+      "wasting_all_attempts_on_untested_code",
+      "missing_compilation_errors_that_prevent_execution",
+      "ignoring_edge_cases_like_input_0_or_large_numbers"
+    ],
+    "source": {
+      "task_id": "circuit-fibsqrt",
+      "attempt": "attempt_1",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/circuit-fibsqrt/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/circuit-fibsqrt/agent/commands.log",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent repeatedly re-read `sim.c` and `gates.txt` across 8 attempts without ever generating a correct gate circuit for the Fibonacci computation. - Subagents frequently modified `gates.txt` despite explicit instructions not to, creating conflicting or incomplete gate definitions. - The planner never directed a systematic approach: understand the simulator’s gate format, derive the required signal operations for Fibonacci modulo 2^32, and generate the full 32,000-line file. - No validation step (compile + run with a test input) was ever performed to verify the circuit’s correctness. - The agent exhausted all attempts on repetitive read-only actions, failing to produce any working submission.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Execute Multi-line Python Scripts Reliably in Docker Shell",
+    "level": "subtask",
+    "description": "When a task requires running a non-trivial Python script (with imports, loops, or conditionals), write the script to a file using a heredoc or echo, then execute the file. Avoid inline -c for any code beyond a single simple expression to prevent shell escaping and syntax errors.",
+    "application_scenarios": [
+      "Running OCR pipelines with preprocessing steps",
+      "Parsing and transforming data with multiple imports",
+      "Writing files that need indentation and multiple statements",
+      "Executing long series of image processing commands",
+      "Testing and debugging Python logic inside a container"
+    ],
+    "execution_principles": [
+      "Use cat with heredoc (cat > script.py << 'EOF') to write multi-line scripts; use single quotes around EOF to prevent variable expansion.",
+      "For short scripts with only one or two statements, a single import + expression may be acceptable with semicolons, but prefer file-based execution for clarity.",
+      "Always separate import statements with newlines inside the script file, not on one line.",
+      "After writing the file, run python3 script.py and capture output; do not rely on inline -c for validation.",
+      "If a heredoc fails, fall back to echo with escaped newlines or write via Python itself using python3 -c 'open(\"file\").write(...)'.",
+      "Check the exit code of both the file write and execution steps; if either fails, retry a different method.",
+      "For iterative development, first write a minimal version and test, then add complexity."
+    ],
+    "workflow": [
+      "assess_script_complexity: if more than 2 statements or uses for-loops/conditionals, choose file-based execution",
+      "construct_script_content_with_proper_indentation_and_newlines",
+      "write_script_to_disk_using_heredoc: cat > /path/script.py << 'EOF' ... EOF",
+      "verify_file_exists: ls -la /path/script.py",
+      "execute_script: python3 /path/script.py",
+      "check_exit_code_and_capture_stderr",
+      "if_error_due_to_syntax: print the script content and fix inline; retry write",
+      "if_heredoc_fails: use python3 -c to write the file or use base64 encoding"
+    ],
+    "example": {
+      "situation": "Agent needs to run a multi-step OCR algorithm that imports PIL and pytesseract, loops over thresholds, and prints results. Inline -c repeatedly gives SyntaxError.",
+      "steps": [
+        "Write script to /tmp/ocr.py using: cat > /tmp/ocr.py << 'EOF'",
+        "Content: from PIL import Image\\nimport pytesseract\\nimg = Image.open('/app/code.png')\\ngray = img.convert('L')\\nfor t in [100,150]:\\n    bw = gray.point(lambda x, th=t: 0 if x < th else 255)\\n    text = pytesseract.image_to_string(bw, config='--psm 6')\\n    print('THRESHOLD', t)\\n    print(text)",
+        "Run: python3 /tmp/ocr.py",
+        "Capture stderr and stdout; fix any errors by editing the file with sed or echo."
+      ]
+    },
+    "failure_cases_prevented": [
+      "inline_python_syntax_errors_from_multiple_imports_on_one_line",
+      "shell_escaping_issues_with_quotes_and_newlines",
+      "missing_semicolons_or_indentation_in_one_liners",
+      "lost_output_due_to_heredoc_eof_matching",
+      "repeated_attempts_with_same_broken_command"
+    ],
+    "source": {
+      "task_id": "code-from-image",
+      "attempt": "attempt_1",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/code-from-image/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/code-from-image/agent/commands.log",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The planner repeatedly delegated the same OCR task without adapting to subagent failures, consuming all 8 attempts. - Subagent persistently used inline Python with `-c` for multi-line code, causing repeated syntax errors (e.g., `from PIL import Image import pytesseract`). - Attempts to write script files failed due to shell heredoc syntax errors (`Syntax error: \"(\" unexpected`), indicating poor command construction. - Installation of tesseract was blocked by dpkg lock, and the subagent did not properly resolve it or check success. - No validation step was performed to verify extracted text content; the agent relied on the planner's expected prefix, which never appeared.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Robust Image Text Extraction with OCR Preprocessing",
+    "level": "subtask",
+    "description": "When tasked with extracting text from an image, install tesseract-ocr and pytesseract, then preprocess the image (grayscale, thresholding, resizing) and try multiple Tesseract configuration modes (PSM and OEM). Always verify the output by checking for expected characters or length, and save intermediate files for inspection.",
+    "application_scenarios": [
+      "Extracting code or pseudocode from screenshots",
+      "Reading text from scanned documents or diagrams",
+      "Processing images with varied contrast or noise",
+      "OCR tasks where image quality is unknown",
+      "Recovering text from image-based error messages or reports"
+    ],
+    "execution_principles": [
+      "Before OCR, check image properties (size, mode) and convert to grayscale; try adaptive thresholding at several levels (e.g., 100, 150, 200).",
+      "If installation of tesseract fails due to dpkg lock, kill the lock process (lsof or fuser) or retry with DEBIAN_FRONTEND=noninteractive and apt-get -o DPkg::Lock::Timeout=60.",
+      "Use Python script with pytesseract and try different PSM values (3, 4, 6) and OEM 3 (LSTM engine).",
+      "Always save OCR results to a file and read it; do not rely solely on stdout for long outputs.",
+      "If output is garbled or empty, upscale the image (3x) with LANCZOS resampling before OCR.",
+      "After extraction, validate by checking for expected patterns (e.g., known function names or syntax quirks) rather than trusting OCR completely.",
+      "Log the raw pixel data or ASCII art as a fallback to understand what the image contains."
+    ],
+    "workflow": [
+      "install_dependencies: apt-get install -y tesseract-ocr && pip install pytesseract Pillow",
+      "check_image_metadata: size, mode, min/max pixel values",
+      "write_preprocessing_script_with_multiple_thresholds",
+      "run_ocr_for_each_configuration_and_save_to_file",
+      "inspect_saved_file_for_meaningful_text",
+      "if_output_is_garbled_or_empty: upscale image and repeat step 3-4",
+      "extract_best_result_based_on_length_or_known_prefix",
+      "report_final_text_and_indicate_confidence"
+    ],
+    "example": {
+      "situation": "Agent needs to read pseudocode from an image but tesseract returns nonsense characters.",
+      "steps": [
+        "Install: DEBIAN_FRONTEND=noninteractive apt-get install -y tesseract-ocr 2>&1",
+        "Install Python libs: pip install pytesseract Pillow",
+        "Write script: cat > /tmp/ocr.py << 'EOF' (with loops over thresholds 100,150,200, PSM 3,4,6)",
+        "Execute: python3 /tmp/ocr.py 2>&1",
+        "Read output file: cat /tmp/ocr_result.txt",
+        "If output short: try upscaling factor 3x before OCR",
+        "Check for known pattern like 'function' or 'PROGRAM' to validate"
+      ]
+    },
+    "failure_cases_prevented": [
+      "ocr_returns_empty_or_garbled_text_due_to_lack_of_preprocessing",
+      "installation_fails_because_of_dpkg_lock_not_handled",
+      "single_psm_mode_not_capturing_text_layout",
+      "not_validating_output_leads_to_wrong_assumptions",
+      "image_too_small_for_tesseract_to_read"
+    ],
+    "source": {
+      "task_id": "code-from-image",
+      "attempt": "attempt_1",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/code-from-image/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/code-from-image/agent/commands.log",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The planner repeatedly delegated the same OCR task without adapting to subagent failures, consuming all 8 attempts. - Subagent persistently used inline Python with `-c` for multi-line code, causing repeated syntax errors (e.g., `from PIL import Image import pytesseract`). - Attempts to write script files failed due to shell heredoc syntax errors (`Syntax error: \"(\" unexpected`), indicating poor command construction. - Installation of tesseract was blocked by dpkg lock, and the subagent did not properly resolve it or check success. - No validation step was performed to verify extracted text content; the agent relied on the planner's expected prefix, which never appeared.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "systematic_dependency_installation_and_validation",
+    "level": "subtask",
+    "description": "Install required system dependencies for building software from source, then validate each dependency's version and location against documented requirements before proceeding to configuration or build steps.",
+    "application_scenarios": [
+      "Building C/OCaml/Coq projects from source",
+      "Setting up development environments on fresh systems",
+      "Installing and verifying toolchain versions for version-sensitive projects",
+      "Handling apt/opam package management with specific version constraints"
+    ],
+    "execution_principles": [
+      "Always check current state first (ls, which, version commands) before installing anything",
+      "Install only necessary packages in a single apt-get install command to minimize redundant calls",
+      "After installation, immediately validate with version checks (ocamlc -version, coqc -version, etc.)",
+      "If a required version is not available, search for alternatives (apt-cache search, opam) before proceeding",
+      "Avoid repeating the same install command multiple times; rely on idempotency of package managers",
+      "Document all version requirements from project documentation (README, configure --help) and compare with installed versions"
+    ],
+    "workflow": [
+      "run_initial_system_checks",
+      "install_core_build_tools_with_one_apt_command",
+      "validate_each_tool_version_against_requirements",
+      "install_additional_dependencies_if_missing",
+      "revalidate_all_required_tools",
+      "proceed_to_source_acquisition_only_if_all_dependencies_satisfied"
+    ],
+    "example": {
+      "situation": "Building a project that requires OCaml 4.14, Coq 8.12-8.16, and menhir on Ubuntu 24.04.",
+      "steps": [
+        "Run uname -a, cat /etc/os-release, which ocamlc coqc menhir, ocamlc -version, coqc -version, menhir --version",
+        "Install missing packages: apt-get install -y ocaml ocaml-native-compilers coq menhir make gcc patch binutils",
+        "Re-run version checks: ocamlc -version, coqc -version, menhir --version",
+        "If Coq version is higher than supported, check configure --help for --ignore-coq-version or consider downgrading via opam",
+        "If menhir missing or wrong version, search apt-cache and install correct version or use opam",
+        "Only after all versions are confirmed compatible, move to downloading and configuring the project"
+      ]
+    },
+    "failure_cases_prevented": [
+      "redundant_installation_of_same_package",
+      "proceeding_with_unsupported_tool_version",
+      "missing_dependency_only_discovered_later_in_build",
+      "wasting_attempts_on_incomplete_dependency_set"
+    ],
+    "source": {
+      "task_id": "compile-compcert",
+      "attempt": "attempt_1",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/compile-compcert/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/compile-compcert/agent/commands.log",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The planner decomposed the task into sequential steps (check, install deps, download, configure, build) but sub-agents often executed redundant or poorly validated commands, such as installing libssl-dev seven times. - Sub-agents failed to read configure help thoroughly: they used incorrect target architecture formats like \"x86_64-unknown-linux-gnu\" when the correct format was \"x86_64-linux\", wasting multiple attempts. - The Coq version mismatch (8.18 vs required ≤8.16) was discovered but not resolved; the --ignore-coq-version flag was eventually found but sub-agents still could not supply a valid target, causing repeated errors. - There was no final validation or submit call; the agent exhausted all 8 attempts without producing the required ccomp executable. - A repeated pattern: sub-agents would execute many steps in a single delegation, including unnecessary or redundant commands (e.g., repeating apt-get install libssl-dev multiple times), indicating poor command efficiency and lack of progress tracking.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "configuring_build_systems_with_correct_parameters",
+    "level": "subtask",
+    "description": "When running a configure script for an open-source project, first read the full help output to understand supported target formats, options, and version constraints. Then construct the exact command with proper target identifier and necessary flags like --ignore-coq-version before executing.",
+    "application_scenarios": [
+      "Running ./configure for C/OCaml projects like CompCert",
+      "Setting target architecture for cross-compilation or specific CPU features",
+      "Handling configure scripts that validate tool versions and fail with cryptic errors",
+      "Working with projects that require specific system identifiers (e.g., x86_64-linux vs x86_64-unknown-linux-gnu)"
+    ],
+    "execution_principles": [
+      "Always capture the full output of ./configure --help (not just head) to see supported targets and options",
+      "Identify the correct target from the help's 'Supported targets' section; copy exactly as shown (e.g., x86_64-linux, not x86_64-unknown-linux-gnu)",
+      "Test configure with --ignore-coq-version or similar flags if version checks fail, before attempting downgrades",
+      "After each configure attempt, check exit code and look for Makefile.config or equivalent generated files",
+      "If configure fails with 'invalid eabi/system', re-read the target syntax from help; the correct format often omits the 'unknown-' or 'gnu' suffix",
+      "Do not try multiple guess-and-check variations of the target; read the help first carefully",
+      "Document the exact command that succeeded for reproducibility"
+    ],
+    "workflow": [
+      "read_configure_help_output_completely",
+      "identify_correct_target_architecture_string_from_help",
+      "construct_configure_command_with_target_and_any_version_override_flags",
+      "execute_configure_command_and_capture_exit_code_and_output",
+      "check_for_generated_makefile_or_other_success_indicators",
+      "if_failure_analyze_error_message_and_reconsult_help",
+      "retry_with_corrected_target_or_flags",
+      "proceed_to_build_only_after_successful_configure"
+    ],
+    "example": {
+      "situation": "Configuring CompCert 3.13.1 on x86_64 Ubuntu with Coq 8.18 (unsupported) and needing to use --ignore-coq-version.",
+      "steps": [
+        "Run: cd /tmp/CompCert && ./configure --help 2>&1 | cat",
+        "Scroll through output to find 'x86_64-linux' under Supported targets (not x86_64-unknown-linux-gnu)",
+        "Also notice 'x86_64-linux-gnu' is not listed; only 'x86_64-linux' is shown",
+        "Construct: cd /tmp/CompCert && ./configure --ignore-coq-version x86_64-linux",
+        "Execute and check exit code. If 0, look for Makefile.config created.",
+        "If exit code 2 with 'invalid eabi/system', go back to help and re-verify target format.",
+        "Once configure succeeds, run 'ls -la Makefile.config' to confirm.",
+        "Then proceed with 'make'."
+      ]
+    },
+    "failure_cases_prevented": [
+      "guessing_wrong_target_architecture_for_configure",
+      "ignoring_help_output_and_trial_and_error_with_invalid_formats",
+      "failing_to_use_version_override_flags_when_needed",
+      "wasting_multiple_attempts_on_incorrect_command_syntax",
+      "proceeding_to_build_without_successful_configuration"
+    ],
+    "source": {
+      "task_id": "compile-compcert",
+      "attempt": "attempt_1",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/compile-compcert/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/compile-compcert/agent/commands.log",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The planner decomposed the task into sequential steps (check, install deps, download, configure, build) but sub-agents often executed redundant or poorly validated commands, such as installing libssl-dev seven times. - Sub-agents failed to read configure help thoroughly: they used incorrect target architecture formats like \"x86_64-unknown-linux-gnu\" when the correct format was \"x86_64-linux\", wasting multiple attempts. - The Coq version mismatch (8.18 vs required ≤8.16) was discovered but not resolved; the --ignore-coq-version flag was eventually found but sub-agents still could not supply a valid target, causing repeated errors. - There was no final validation or submit call; the agent exhausted all 8 attempts without producing the required ccomp executable. - A repeated pattern: sub-agents would execute many steps in a single delegation, including unnecessary or redundant commands (e.g., repeating apt-get install libssl-dev multiple times), indicating poor command efficiency and lack of progress tracking.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Validate bare git repository path and local push pipeline",
+    "level": "subtask",
+    "description": "When configuring a git server with post-receive deployment, always confirm the bare repository exists exactly at the path that will be used for local push, verify it is a valid git repository, and test a simple push before checking the web server.",
+    "application_scenarios": [
+      "Setting up a git repository for automated deployment",
+      "Configuring post-receive hooks that write to a web root",
+      "Debugging push failures in a local git workflow",
+      "Establishing a reproducible git-to-web CI pipeline",
+      "Ensuring symlinks or aliases do not break repository detection"
+    ],
+    "execution_principles": [
+      "Always use `git rev-parse --git-dir` inside the target directory to confirm it is a bare repository.",
+      "Check that the path used in `git remote add origin <path>` matches the exact filesystem location of the bare repo (resolve symlinks with `readlink -f`).",
+      "After creating the repo, push a test commit immediately to verify the push succeeds before relying on the hook.",
+      "If using symlinks, test both the symlink path and the real path to catch inconsistencies.",
+      "Never assume a previous step succeeded; re-verify critical paths before running a multi-command pipeline.",
+      "Clean up test directories completely (`rm -rf`) before retrying to avoid stale state influencing results."
+    ],
+    "workflow": [
+      "run_ls_on_repo_path",
+      "run_git_rev_parse_git_dir_on_bare_path",
+      "if_not_valid_create_bare_repo_with_git_init_bare",
+      "set_correct_permissions_and_ownership",
+      "write_and_chmod_post_receive_hook",
+      "create_a_local_test_repo",
+      "git_remote_add_origin_using_exact_bare_path",
+      "git_push_and_verify_no_error"
+    ],
+    "example": {
+      "situation": "Agent created a bare repo at /git/server.git and a symlink /git/server -> /git/server.git. Later, the hook path was hardcoded to /git/server/hooks/post-receive, but push to /git/server failed because the symlink resolved correctly but the agent did not verify that /git/server itself was a valid repo",
+      "steps": [
+        "ls -la /git/server",
+        "cd /git/server && git rev-parse --git-dir",
+        "If not a git repo, create the bare repo: git init --bare /git/server (instead of symlink)",
+        "Set ownership: chown -R git:git /git/server",
+        "Write hook to /git/server/hooks/post-receive with correct checkout command",
+        "chmod +x /git/server/hooks/post-receive",
+        "Create test repo: cd /tmp && rm -rf test_repo && mkdir test_repo && cd test_repo && git init && echo test > a.html && git add . && git commit -m test && git remote add origin /git/server && git push origin master",
+        "If push succeeds, continue; if fails, inspect the bare repo with git fsck or reinitialize."
+      ]
+    },
+    "failure_cases_prevented": [
+      "pushing_to_nonexistent_or_invalid_repository",
+      "silent_symlink_breakage_after_cleanup",
+      "repeated_retries_without_fixing_root_cause",
+      "relying_on_previous_attempts_setup_that_was_overwritten",
+      "confusion_between_git_server_git_and_git_server_paths"
+    ],
+    "source": {
+      "task_id": "configure-git-webserver",
+      "attempt": "attempt_1",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/configure-git-webserver/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/configure-git-webserver/agent/commands.log",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent repeatedly failed to maintain a consistent bare repository path: /git/server.git was created but later expected as /git/server (symlink not properly persisted or dropped), causing local git push to fail with \"not a git repository\". - The planner delegated large monolithic instructions without breaking down validation steps; sub-agents retried the same faulty end-to-end test multiple times without fixing the underlying repo path issue. - The web server was successfully started using a background Python process after systemd unit creation failed, but the agent later lost track of the service and did not verify its continued availability. - The agent did not perform incremental checks after each fix (e.g., checking `ls -la /git/`, `git rev-parse --git-dir`) before running the full push test, leading to wasted attempts. - Several attempts succeeded in earlier sub-trajectories (attempts 3,4), but later attempts accidentally overwrote or deleted the correct setup, showing lack of state preservation.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Start Python HTTP server without systemd in Docker containers",
+    "level": "subtask",
+    "description": "When the container lacks systemd (PID 1 is not systemd), never try to use systemctl or systemd units. Instead, start the Python HTTP server in the background with nohup, capture its PID, and verify it is listening before proceeding.",
+    "application_scenarios": [
+      "Running a web server in a minimal Docker container without init system",
+      "Setting up a development or testing HTTP server for short-lived tasks",
+      "Automating service startup in Terminal-Bench environments where systemd is unavailable",
+      "Starting a background process that must survive the current shell session",
+      "Quickly standing up a static file server for verification of git-deployed content"
+    ],
+    "execution_principles": [
+      "Always check if systemd is available: `cat /proc/1/comm` or `systemctl list-units 2>&1 | grep -q 'System has not been booted'`.",
+      "If systemd is missing, use `nohup python3 -m http.server <port> --directory <path> > /tmp/http_server.log 2>&1 &`.",
+      "Immediately after starting, save the PID: `echo $! > /tmp/http_server.pid`.",
+      "Verify the server is listening with `ss -tlnp | grep <port>` (or `netstat -tlnp`).",
+      "Test the server with `curl -s http://localhost:<port>/` and check for non-empty response.",
+      "Avoid using `&` alone without nohup because the process may be killed when the shell exits.",
+      "If the port is already in use, kill the old process using `fuser -k <port>/tcp` or `kill $(lsof -ti:<port>)` before starting a new one."
+    ],
+    "workflow": [
+      "check_if_systemd_is_available",
+      "kill_any_existing_process_on_target_port",
+      "cd_to_web_root_or_use_directory_flag",
+      "start_nohup_python_http_server_with_port_and_directory",
+      "record_pid_to_file",
+      "wait_1_second_and_check_listening_port_with_ss",
+      "test_with_curl_and_verify_output"
+    ],
+    "example": {
+      "situation": "The agent tried to create a systemd unit file and run `systemctl start` but got 'System has not been booted with systemd as init system'. The task required a web server on port 8080 serving /var/www/html.",
+      "steps": [
+        "ss -tlnp | grep 8080 || echo 'port free'",
+        "fuser -k 8080/tcp 2>/dev/null; sleep 0.5",
+        "nohup python3 -m http.server 8080 --directory /var/www/html > /tmp/webserver.log 2>&1 &",
+        "SERVER_PID=$!; echo $SERVER_PID > /tmp/webserver.pid",
+        "sleep 1",
+        "ss -tlnp | grep 8080",
+        "curl -s http://localhost:8080/",
+        "If curl fails, tail /tmp/webserver.log to see error"
+      ]
+    },
+    "failure_cases_prevented": [
+      "trying_to_use_systemctl_in_non_systemd_container",
+      "background_process_dying_when_shell_exits",
+      "not_verifying_server_is_actually_listening",
+      "starting_server_on_already_occupied_port_without_killing_old_process",
+      "missing_log_files_for_debugging_server_startup_errors"
+    ],
+    "source": {
+      "task_id": "configure-git-webserver",
+      "attempt": "attempt_1",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/configure-git-webserver/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/configure-git-webserver/agent/commands.log",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The agent repeatedly failed to maintain a consistent bare repository path: /git/server.git was created but later expected as /git/server (symlink not properly persisted or dropped), causing local git push to fail with \"not a git repository\". - The planner delegated large monolithic instructions without breaking down validation steps; sub-agents retried the same faulty end-to-end test multiple times without fixing the underlying repo path issue. - The web server was successfully started using a background Python process after systemd unit creation failed, but the agent later lost track of the service and did not verify its continued availability. - The agent did not perform incremental checks after each fix (e.g., checking `ls -la /git/`, `git rev-parse --git-dir`) before running the full push test, leading to wasted attempts. - Several attempts succeeded in earlier sub-trajectories (attempts 3,4), but later attempts accidentally overwrote or deleted the correct setup, showing lack of state preservation.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Executing Multi-line Python Scripts via File-based Approach",
+    "level": "subtask",
+    "description": "When running multi-line Python code in a Docker shell command, always write the script to a temporary file using cat with a heredoc delimiter, then execute the file with python3. This avoids syntax errors from inline multi-line strings and ensures the script runs correctly.",
+    "application_scenarios": [
+      "Running data exploration scripts on HuggingFace datasets",
+      "Executing tokenization or model inference code that spans multiple lines",
+      "Performing multi-step analysis that requires imports and multiple print statements",
+      "Any task where the instruction contains a Python script with multiple lines of code"
+    ],
+    "execution_principles": [
+      "Always use `cat > /path/to/script.py << 'DELIM'` to write the script file verbatim",
+      "Choose a unique, uppercase heredoc delimiter (e.g., 'PYEOF', 'ENDOFPYTHON') and enclose it in single quotes to prevent shell variable expansion",
+      "After writing the file, run it with `python3 /path/to/script.py`",
+      "Do not embed the Python code directly as a single long string with embedded newlines; the shell may not interpret them correctly",
+      "Test script syntax by running `python3 -m py_compile /path/to/script.py` before executing if possible",
+      "Avoid using heredoc with multiple commands inside the same shell block; write one script per file",
+      "If the script uses f-strings or special characters, ensure the heredoc delimiter is not present in the code"
+    ],
+    "workflow": [
+      "install_required_packages_if_needed",
+      "create_script_file_using_cat_heredoc",
+      "verify_file_creation_with_ls_or_cat",
+      "execute_script_with_python3",
+      "capture_stdout_to_variable_or_answer_file_as_needed",
+      "check_exit_code_and_handle_errors_by_reviewing_output",
+      "remove_temp_script_file_if_cleanup_is_needed"
+    ],
+    "example": {
+      "situation": "Need to load a HuggingFace dataset and print its features, then filter for 'science' domain.",
+      "steps": [
+        "pip install -q datasets huggingface_hub",
+        "cat > /tmp/explore.py << 'PYEOF'\nfrom datasets import load_dataset\nds = load_dataset(\"my-dataset\")\nprint(ds['train'].features)\nPYEOF",
+        "python3 /tmp/explore.py",
+        "cat > /tmp/filter.py << 'PYEOF'\nfrom datasets import load_dataset\nds = load_dataset(\"my-dataset\")\nscience = ds['train'].filter(lambda x: x['domain']=='science')\nprint(len(science))\nPYEOF",
+        "python3 /tmp/filter.py > /app/answer.txt"
+      ]
+    },
+    "failure_cases_prevented": [
+      "shell_syntax_error_from_improper_newlines_in_inline_code",
+      "heredoc_not_terminated_correctly",
+      "script_execution_failing_due_to_quote_mismatch",
+      "unexpected_shell_expansion_of_variables_in_script",
+      "wasting_steps_repeatedly_on_same_syntax_error"
+    ],
+    "source": {
+      "task_id": "count-dataset-tokens",
+      "attempt": "attempt_1",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/count-dataset-tokens/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/count-dataset-tokens/agent/commands.log",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The planner repeatedly delegated dataset exploration without specifying the actual token counting goal, wasting attempts on understanding structure. - The sub-agent repeatedly failed to execute multi-line Python scripts via heredoc due to incorrect format (newlines not properly passed), causing syntax errors and step exhaustion. - Even after successful script execution in attempt 8, the output was unrelated code (likely from a previous script or corruption), indicating lack of output validation. - No proper mechanism to capture final result into answer.txt; the reward was 0 and submit was never called. - The sub-agent did not leverage file-based script execution (cat > file) until attempt 8, and even then output was not as expected.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  },
+  {
+    "name": "Systematic Output Verification and Capture to answer.txt",
+    "level": "subtask",
+    "description": "After executing any command or script that produces the final answer or intermediate data, always verify the output by displaying it (e.g., via echo or cat) and then explicitly write the required result into the answer.txt file. Do not assume the output is correct; inspect it for completeness and correctness.",
+    "application_scenarios": [
+      "When the task requires writing a numeric result or summary to answer.txt",
+      "After running a Python script that prints the answer to stdout",
+      "When validating that dataset filtering returned expected number of rows",
+      "After token counting or any computation with a single final value",
+      "When the reward depends on the content of answer.txt being exactly correct"
+    ],
+    "execution_principles": [
+      "Always redirect the final script's stdout to answer.txt using `> /app/answer.txt` or capture it with a variable and then write",
+      "After writing, immediately display the content of answer.txt with `cat /app/answer.txt` to verify",
+      "If the script outputs multiple lines, extract only the required line (e.g., using `grep` or tail)",
+      "Do not rely on sub-agent's summary message; read the actual file contents",
+      "If the script fails, inspect the error message and retry with corrected code before writing anything to answer.txt",
+      "Include a step to clear old answer.txt before writing new content to avoid stale data",
+      "Use `echo` or `printf` to manually write a known value if script output is not available"
+    ],
+    "workflow": [
+      "run_command_or_script_and_check_exit_code",
+      "if_exit_code_0_then_display_stdout_for_inspection",
+      "extract_the_required_answer_value_from_stdout",
+      "write_the_value_to_app_answer_txt_using_redirect_or_echo",
+      "verify_answer_txt_content_with_cat",
+      "if_answer_txt_not_correct_then_debug_and_rewrite",
+      "proceed_to_submit_only_after_answer_txt_is_correct"
+    ],
+    "example": {
+      "situation": "After counting tokens in a dataset, need to store the count in answer.txt.",
+      "steps": [
+        "python3 /app/count_tokens.py > /app/answer.txt",
+        "cat /app/answer.txt",
+        "if the output is not just a single number, adjust script to print only the number",
+        "run again and verify answer.txt contains exactly '12345'",
+        "echo 'Token count saved: ' && cat /app/answer.txt"
+      ]
+    },
+    "failure_cases_prevented": [
+      "answer_txt_left_empty_or_with_old_content",
+      "output_not_captured_causing_no_answer_to_submit",
+      "unexpected_output_format_not_parsed_correctly",
+      "verification_skipped_leading_to_incorrect_answer",
+      "relying_on_sub_agent_summary_instead_of_actual_file"
+    ],
+    "source": {
+      "task_id": "count-dataset-tokens",
+      "attempt": "attempt_1",
+      "trajectory": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/count-dataset-tokens/trajectory.json",
+      "commands_log": "D:/vscode_project/Uno-Orchestra-Modify/data/eval/deepseek_v4_pro_qwen3_8b_router_terminalbench/logs/attempt_1/count-dataset-tokens/agent/commands.log",
+      "reward": 0.0,
+      "submit_called": false,
+      "trajectory_diagnosis": "- The planner repeatedly delegated dataset exploration without specifying the actual token counting goal, wasting attempts on understanding structure. - The sub-agent repeatedly failed to execute multi-line Python scripts via heredoc due to incorrect format (newlines not properly passed), causing syntax errors and step exhaustion. - Even after successful script execution in attempt 8, the output was unrelated code (likely from a previous script or corruption), indicating lack of output validation. - No proper mechanism to capture final result into answer.txt; the reward was 0 and submit was never called. - The sub-agent did not leverage file-based script execution (cat > file) until attempt 8, and even then output was not as expected.",
+      "distill_model": "deepseek-v4-flash"
+    }
+  }
+]

@@ -1,0 +1,233 @@
+[
+  {
+    "name": "Output-Condition Verification",
+    "level": "subtask",
+    "description": "Verify generated files, command outputs, and task artifacts against explicit success conditions before reporting completion. A file existing is not enough; its content must match the required structure, values, and invariants.",
+    "application_scenarios": [
+      "Terminal-Bench tasks",
+      "SWE-bench verification",
+      "Generated CSV / JSON / text artifacts",
+      "DAG and graph structure validation",
+      "Model output validation",
+      "Data pipeline checks"
+    ],
+    "execution_principles": [
+      "Extract expected conditions from the task",
+      "Check actual artifact contents, not only file existence",
+      "Compare sets, counts, schemas, and statistics explicitly",
+      "Treat mismatches as blockers",
+      "Do not return status=done when any required condition is unverified"
+    ],
+    "workflow": [
+      "read_task_requirements",
+      "list_required_outputs",
+      "inspect_generated_artifacts",
+      "compare_actual_to_expected",
+      "report_pass_fail_with_evidence",
+      "repair_or_escalate_if_failed"
+    ],
+    "example": {
+      "situation": "Intervened DAG should remove incoming edges to Y",
+      "steps": [
+        "Read /app/intervened_dag.csv",
+        "Parse edges as (from, to) pairs",
+        "Compare against expected edge set",
+        "Detect extra U->Y edge",
+        "Rewrite intervened_dag.csv without U->Y",
+        "Rerun verifier"
+      ]
+    },
+    "failure_cases_prevented": [
+      "false_positive_completion",
+      "file_exists_but_wrong_content",
+      "undetected_schema_mismatch",
+      "incorrect_graph_structure",
+      "unverified_final_answer"
+    ]
+  },
+  {
+    "name": "Test-Driven Failure Diagnosis",
+    "level": "task",
+    "description": "Run available tests or lightweight validation scripts, parse failures, identify the minimal cause, and use the failure message to drive the next repair step.",
+    "application_scenarios": [
+      "Terminal-Bench verifier failures",
+      "SWE-bench regression tests",
+      "Python / R / shell debugging",
+      "Scientific computing tasks",
+      "Generated implementation validation"
+    ],
+    "execution_principles": [
+      "Run tests before claiming success",
+      "Read assertion messages carefully",
+      "Map each failing test to a concrete missing behavior",
+      "Fix the root cause instead of masking symptoms",
+      "Rerun the failing test after repair"
+    ],
+    "workflow": [
+      "run_tests",
+      "collect_failure_output",
+      "identify_failed_assertions",
+      "map_failure_to_requirement",
+      "apply_minimal_fix",
+      "rerun_tests",
+      "confirm_all_pass"
+    ],
+    "example": {
+      "situation": "ARS implementation fails normal sampling test",
+      "steps": [
+        "Run Rscript /app/ars.R",
+        "Run verifier test script",
+        "Observe mean/std out of expected range",
+        "Inspect sampling function",
+        "Detect placeholder uniform sampler",
+        "Replace with valid ARS or statistically valid sampler",
+        "Regenerate normal_samples.txt",
+        "Rerun tests"
+      ]
+    },
+    "failure_cases_prevented": [
+      "ignoring_assertion_errors",
+      "declaring_success_after_failed_tests",
+      "fixing_wrong_component",
+      "incomplete_debugging",
+      "repeated_test_failures"
+    ]
+  },
+  {
+    "name": "Safe Multi-Line Code Authoring",
+    "level": "subtask",
+    "description": "Create or modify nontrivial source files using robust file-writing methods instead of fragile chained echo commands. Preserve syntax, quoting, indentation, and executable structure.",
+    "application_scenarios": [
+      "Writing R scripts",
+      "Writing Python scripts",
+      "Generating shell scripts",
+      "Patching configuration files",
+      "Long code blocks in Docker containers",
+      "Tasks with complex quoting or heredocs"
+    ],
+    "execution_principles": [
+      "Avoid long echo chains for complex code",
+      "Prefer heredoc, cat > file, tee, or Python file writing",
+      "Inspect the written file after creation",
+      "Run syntax checks before executing",
+      "Do not overwrite working code with placeholders"
+    ],
+    "workflow": [
+      "inspect_existing_file",
+      "choose_safe_write_method",
+      "write_complete_code",
+      "cat_or_sed_to_verify_file",
+      "run_syntax_check",
+      "run_functional_test",
+      "repair_if_needed"
+    ],
+    "example": {
+      "situation": "Need to create /app/ars.R",
+      "steps": [
+        "Use cat > /app/ars.R <<'EOF'",
+        "Write full R implementation",
+        "Close EOF",
+        "Run Rscript -e \"parse('/app/ars.R')\"",
+        "Run Rscript /app/ars.R",
+        "Inspect generated sample files"
+      ]
+    },
+    "failure_cases_prevented": [
+      "broken_shell_quoting",
+      "truncated_source_files",
+      "placeholder_implementations",
+      "syntax_errors_from_echo",
+      "accidental_overwrite_of_partial_work"
+    ]
+  },
+  {
+    "name": "Completion Status Gate",
+    "level": "subtask",
+    "description": "Before returning a final subtask status, enforce strict completion criteria based on command exit codes, artifact checks, test results, and unresolved issues.",
+    "application_scenarios": [
+      "SubAgent reports",
+      "Terminal-Bench delegated subtasks",
+      "Long-running shell workflows",
+      "Code generation tasks",
+      "Validation-heavy benchmarks"
+    ],
+    "execution_principles": [
+      "status=done requires evidence",
+      "Any failed command must be explained or repaired",
+      "Missing files force status=partial or error",
+      "Known TODOs or placeholders prevent done",
+      "Issues list must be consistent with status"
+    ],
+    "workflow": [
+      "review_recent_commands",
+      "check_exit_codes",
+      "check_required_artifacts",
+      "check_tests_or_validation",
+      "classify_status",
+      "return_evidence_based_report"
+    ],
+    "example": {
+      "situation": "Subtask asks to verify sample files",
+      "steps": [
+        "Run ls normal_samples.txt exponential_samples.txt",
+        "Observe files missing",
+        "Return status=partial instead of done",
+        "State missing files in issues",
+        "Suggest generating sample files next"
+      ]
+    },
+    "failure_cases_prevented": [
+      "done_with_failed_commands",
+      "done_with_missing_files",
+      "done_with_placeholders",
+      "misleading_planner_feedback",
+      "premature_submit"
+    ]
+  },
+  {
+    "name": "Artifact Inspection and Statistical Sanity Check",
+    "level": "subtask",
+    "description": "Inspect generated data artifacts using schema checks, row counts, summary statistics, and lightweight domain-specific invariants before treating them as valid.",
+    "application_scenarios": [
+      "CSV generation",
+      "Sampling tasks",
+      "Bayesian network outputs",
+      "Data analysis benchmarks",
+      "Scientific computing workflows",
+      "Simulation outputs"
+    ],
+    "execution_principles": [
+      "Check row and column counts",
+      "Check required column names",
+      "Compute summary statistics",
+      "Verify domain-specific invariants",
+      "Compare generated samples with expected distribution ranges"
+    ],
+    "workflow": [
+      "load_artifact",
+      "verify_schema",
+      "verify_size",
+      "compute_statistics",
+      "check_invariants",
+      "report_evidence",
+      "repair_if_invalid"
+    ],
+    "example": {
+      "situation": "Generated final_bn_sample.csv after do(Y=0)",
+      "steps": [
+        "Load CSV",
+        "Confirm 10000 rows and columns U,Y,R,D,M",
+        "Check all Y values are 0",
+        "Check intervened_dag.csv has no incoming edge to Y",
+        "Run verifier"
+      ]
+    },
+    "failure_cases_prevented": [
+      "invalid_samples",
+      "wrong_distribution_statistics",
+      "incorrect_csv_schema",
+      "silent_data_corruption",
+      "graph_intervention_errors"
+    ]
+  }
+]
