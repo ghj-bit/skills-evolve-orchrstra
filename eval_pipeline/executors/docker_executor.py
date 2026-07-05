@@ -1,6 +1,7 @@
 """Docker executor for Terminal Bench tasks."""
 import asyncio
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -11,6 +12,10 @@ from typing import Optional, Tuple
 import logging; logger = logging.getLogger(__name__)
 from .base_executor import BaseExecutor
 from .docker_manager import DockerComposeEnvVars, DockerComposeManager
+
+
+def _safe_docker_name(value: str) -> str:
+    return re.sub(r"[^a-z0-9_-]+", "-", value.lower()).strip("-")
 
 
 APT_PIP_MIRROR_INJECTION = """# tbench mirror injection: begin
@@ -233,7 +238,7 @@ class DockerExecutor(BaseExecutor):
 
         # Generate unique project name
         session_id = str(uuid.uuid4())[:8]
-        self.project_name = f"tbench-{self.task_id}-{session_id}".lower().replace("_", "-")
+        self.project_name = _safe_docker_name(f"tbench-{self.task_id}-{session_id}")
 
         # Determine whether to use prebuilt image or build from Dockerfile
         use_prebuilt = prebuilt_image is not None
@@ -252,7 +257,7 @@ class DockerExecutor(BaseExecutor):
                 raise FileNotFoundError(f"Dockerfile not found: {dockerfile_path}")
             
             logger.info(f"Building image from Dockerfile: {dockerfile_path}")
-            self.image_name = f"tbench-{self.task_id}-{session_id}".lower().replace("_", "-")
+            self.image_name = _safe_docker_name(f"tbench-{self.task_id}-{session_id}")
             
             # Build from a temporary copy so mirror/proxy injections never
             # mutate the task's original Dockerfile.
