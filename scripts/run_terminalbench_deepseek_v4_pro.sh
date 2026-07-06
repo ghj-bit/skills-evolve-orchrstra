@@ -42,6 +42,10 @@ export TERMINALBENCH_TASK_END="${TERMINALBENCH_TASK_END:-}"
 # Empty TERMINALBENCH_TASK_IDS means run every Terminal-Bench task discovered by the loader.
 export TERMINALBENCH_TASK_IDS="${TERMINALBENCH_TASK_IDS:-}"
 export TERMINALBENCH_VERBOSE="${TERMINALBENCH_VERBOSE:-1}"
+export TERMINALBENCH_DOCKER_MONITOR="${TERMINALBENCH_DOCKER_MONITOR:-1}"
+export TERMINALBENCH_DOCKER_MONITOR_INTERVAL="${TERMINALBENCH_DOCKER_MONITOR_INTERVAL:-20}"
+export TERMINALBENCH_DOCKER_IMAGE_PREFIX="${TERMINALBENCH_DOCKER_IMAGE_PREFIX:-alexgshaw}"
+export TERMINALBENCH_DOCKER_IMAGE_TAG="${TERMINALBENCH_DOCKER_IMAGE_TAG:-20251031}"
 export SUBAGENT_INCLUDE_STEP_LOGS="${SUBAGENT_INCLUDE_STEP_LOGS:-0}"
 export SUBAGENT_ENABLE_SKILLS="${SUBAGENT_ENABLE_SKILLS:-0}"
 export SUBAGENT_SKILLS_TOP_K="${SUBAGENT_SKILLS_TOP_K:-2}"
@@ -123,6 +127,9 @@ fi
 LOG_FILE="${OUT_DIR}/run.log"
 RUN_PID=""
 
+# shellcheck source=scripts/terminalbench_docker_cleanup_monitor.sh
+source "${PROJECT_DIR}/scripts/terminalbench_docker_cleanup_monitor.sh"
+
 check_docker() {
     if ! command -v docker >/dev/null 2>&1; then
         {
@@ -146,6 +153,7 @@ check_docker() {
 cleanup() {
     local signal="${1:-INT}"
     echo "Received ${signal}; stopping eval process..." >> "${LOG_FILE}"
+    terminalbench_stop_docker_cleanup_monitor
     if [[ -n "${RUN_PID}" ]]; then
         kill -INT "${RUN_PID}" 2>/dev/null || true
         sleep 5
@@ -182,6 +190,10 @@ trap 'cleanup TERM' TERM
     echo "task_start:    ${TERMINALBENCH_TASK_START}"
     echo "task_end:      ${TERMINALBENCH_TASK_END}"
     echo "task_ids:      ${TERMINALBENCH_TASK_IDS}"
+    echo "docker_monitor:${TERMINALBENCH_DOCKER_MONITOR}"
+    echo "docker_monitor_interval:${TERMINALBENCH_DOCKER_MONITOR_INTERVAL}"
+    echo "docker_image_prefix:${TERMINALBENCH_DOCKER_IMAGE_PREFIX}"
+    echo "docker_image_tag:${TERMINALBENCH_DOCKER_IMAGE_TAG}"
     echo "ORIGINAL_UNO_POOLS_PATH:${ORIGINAL_UNO_POOLS_PATH}"
     echo "UNO_POOLS_PATH:${UNO_POOLS_PATH}"
     echo "SUBAGENT_INCLUDE_STEP_LOGS:${SUBAGENT_INCLUDE_STEP_LOGS}"
@@ -202,11 +214,13 @@ if ! check_docker; then
 fi
 
 cd "${PROJECT_DIR}"
+terminalbench_start_docker_cleanup_monitor "${OUT_DIR}" "${LOG_FILE}"
 "${CMD[@]}" >> "${LOG_FILE}" 2>&1 &
 RUN_PID=$!
 wait "${RUN_PID}"
 STATUS=$?
 trap - INT TERM
+terminalbench_stop_docker_cleanup_monitor
 
 if [[ "${STATUS}" -ne 0 ]]; then
     echo "Command failed with status ${STATUS}. Results: ${OUT_DIR}" >> "${LOG_FILE}"

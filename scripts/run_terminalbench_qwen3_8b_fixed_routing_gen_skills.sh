@@ -47,6 +47,10 @@ export TERMINALBENCH_TASK_START="${TERMINALBENCH_TASK_START:-1}"
 export TERMINALBENCH_TASK_END="${TERMINALBENCH_TASK_END:-}"
 export TERMINALBENCH_TASK_IDS="${TERMINALBENCH_TASK_IDS:-bn-fit-modify,build-pmars,cobol-modernization,count-dataset-tokens,crack-7z-hash,distribution-search,dna-insert,extract-elf,financial-document-processor,fix-git,headless-terminal,kv-store-grpc,largest-eigenval,mcmc-sampling-stan,modernize-scientific-stack,nginx-request-logging,password-recovery,portfolio-optimization}"
 export TERMINALBENCH_VERBOSE="${TERMINALBENCH_VERBOSE:-1}"
+export TERMINALBENCH_DOCKER_MONITOR="${TERMINALBENCH_DOCKER_MONITOR:-1}"
+export TERMINALBENCH_DOCKER_MONITOR_INTERVAL="${TERMINALBENCH_DOCKER_MONITOR_INTERVAL:-20}"
+export TERMINALBENCH_DOCKER_IMAGE_PREFIX="${TERMINALBENCH_DOCKER_IMAGE_PREFIX:-alexgshaw}"
+export TERMINALBENCH_DOCKER_IMAGE_TAG="${TERMINALBENCH_DOCKER_IMAGE_TAG:-20251031}"
 export SUBAGENT_INCLUDE_STEP_LOGS="${SUBAGENT_INCLUDE_STEP_LOGS:-0}"
 export SUBAGENT_ENABLE_SKILLS="${SUBAGENT_ENABLE_SKILLS:-1}"
 export SUBAGENT_SKILLS_TOP_K="${SUBAGENT_SKILLS_TOP_K:-2}"
@@ -137,6 +141,10 @@ fi
 
 RUN_LOG_TS="$(date +%Y%m%d_%H%M%S)"
 LOG_FILE="${OUT_DIR}/log_${RUN_LOG_TS}.log"
+RUN_PID=""
+
+# shellcheck source=scripts/terminalbench_docker_cleanup_monitor.sh
+source "${PROJECT_DIR}/scripts/terminalbench_docker_cleanup_monitor.sh"
 
 if [[ "${TBENCH_PRUNE_STALE_NETWORKS}" != "0" ]]; then
     {
@@ -181,6 +189,10 @@ fi
     echo "task_end:      ${TERMINALBENCH_TASK_END}"
     echo "task_ids:      ${TERMINALBENCH_TASK_IDS}"
     echo "resume:        enabled (reuse OUT_DIR to skip completed tasks)"
+    echo "docker_monitor:${TERMINALBENCH_DOCKER_MONITOR}"
+    echo "docker_monitor_interval:${TERMINALBENCH_DOCKER_MONITOR_INTERVAL}"
+    echo "docker_image_prefix:${TERMINALBENCH_DOCKER_IMAGE_PREFIX}"
+    echo "docker_image_tag:${TERMINALBENCH_DOCKER_IMAGE_TAG}"
     echo "ORIGINAL_UNO_POOLS_PATH:${ORIGINAL_UNO_POOLS_PATH}"
     echo "UNO_POOLS_PATH:${UNO_POOLS_PATH}"
     echo "SUBAGENT_INCLUDE_STEP_LOGS:${SUBAGENT_INCLUDE_STEP_LOGS}"
@@ -298,8 +310,34 @@ else:
     print("No unverified task outputs needed cleanup.")
 PY
 
+cleanup() {
+    local signal="${1:-INT}"
+    echo "Received ${signal}; stopping eval process..." >> "${LOG_FILE}"
+    terminalbench_stop_docker_cleanup_monitor
+    if [[ -n "${RUN_PID}" ]]; then
+        kill -INT "${RUN_PID}" 2>/dev/null || true
+        sleep 5
+        kill -TERM "${RUN_PID}" 2>/dev/null || true
+    fi
+    exit 130
+}
+
+trap 'cleanup INT' INT
+trap 'cleanup TERM' TERM
+
 cd "${PROJECT_DIR}"
-"${CMD[@]}" >> "${LOG_FILE}" 2>&1
+terminalbench_start_docker_cleanup_monitor "${OUT_DIR}" "${LOG_FILE}"
+"${CMD[@]}" >> "${LOG_FILE}" 2>&1 &
+RUN_PID=$!
+wait "${RUN_PID}"
+STATUS=$?
+trap - INT TERM
+terminalbench_stop_docker_cleanup_monitor
+
+if [[ "${STATUS}" -ne 0 ]]; then
+    echo "Command failed with status ${STATUS}. Results: ${OUT_DIR}" >> "${LOG_FILE}"
+    exit "${STATUS}"
+fi
 
 {
     echo "Done. Results: ${OUT_DIR}"
