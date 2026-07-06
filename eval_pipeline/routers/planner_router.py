@@ -8,10 +8,25 @@ path as ``UnoSFT``.
 from __future__ import annotations
 
 import json
+import os
+from datetime import datetime, timezone
+
 import openai
 
 from .router_sft import UnoSFT
 from ..config import DEFAULT_API_BASE, DEFAULT_LOCAL_BASE, EVAL_MAX_TOKENS
+
+
+def _write_router_io_log(record: dict) -> None:
+    log_path = os.environ.get("UNO_ROUTER_IO_LOG", "").strip()
+    if not log_path:
+        return
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(log_path)), exist_ok=True)
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+    except Exception:
+        return
 
 
 class PlannerRouter(UnoSFT):
@@ -68,7 +83,26 @@ class PlannerRouter(UnoSFT):
         if tools:
             call_kw["tools"] = tools
             call_kw["tool_choice"] = kw.get("tool_choice", "auto")
-        r = self.chat_client.chat.completions.create(**call_kw)
+
+        request_started_at = datetime.now(timezone.utc).isoformat()
+        request_meta = {k: v for k, v in call_kw.items() if k not in {"messages", "tools"}}
+        try:
+            r = self.chat_client.chat.completions.create(**call_kw)
+        except Exception as exc:
+            _write_router_io_log(
+                {
+                    "timestamp": request_started_at,
+                    "event": "error",
+                    "model": self.planner_model,
+                    "request": request_meta,
+                    "messages": messages,
+                    "tools": tools or [],
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                }
+            )
+            raise
+
         msg = r.choices[0].message
         tool_calls = []
         for tc in (msg.tool_calls or []):
@@ -77,6 +111,23 @@ class PlannerRouter(UnoSFT):
             except Exception:
                 args = {"_raw": tc.function.arguments}
             tool_calls.append({"id": tc.id, "name": tc.function.name, "arguments": args})
+        _write_router_io_log(
+            {
+                "timestamp": request_started_at,
+                "event": "response",
+                "model": self.planner_model,
+                "request": request_meta,
+                "messages": messages,
+                "tools": tools or [],
+                "response": {
+                    "content": msg.content,
+                    "tool_calls": tool_calls,
+                    "completion_tokens": getattr(r.usage, "completion_tokens", 0) or 0,
+                    "prompt_tokens": getattr(r.usage, "prompt_tokens", 0) or 0,
+                    "model": getattr(r, "model", self.planner_model),
+                },
+            }
+        )
         return {
             "content": msg.content,
             "tool_calls": tool_calls,

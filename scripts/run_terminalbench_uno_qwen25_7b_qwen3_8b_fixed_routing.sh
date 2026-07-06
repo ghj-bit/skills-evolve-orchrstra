@@ -66,6 +66,7 @@ TIMESTAMP="$(date +%Y%m%d_%H%M)"
 OUT_DIR="${EVAL_OUT}/${RUN_NAME}_${TIMESTAMP}"
 
 mkdir -p "${OUT_DIR}"
+export UNO_ROUTER_IO_LOG="${UNO_ROUTER_IO_LOG:-${OUT_DIR}/router_prompt_outputs.jsonl}"
 
 FIXED_UNO_POOLS_PATH="${OUT_DIR}/pools.qwen3_8b_fixed_worker.yaml"
 cat > "${FIXED_UNO_POOLS_PATH}" <<EOF
@@ -199,6 +200,7 @@ trap 'cleanup TERM' TERM
     echo "docker_image_tag:${TERMINALBENCH_DOCKER_IMAGE_TAG}"
     echo "ORIGINAL_UNO_POOLS_PATH:${ORIGINAL_UNO_POOLS_PATH}"
     echo "UNO_POOLS_PATH:${UNO_POOLS_PATH}"
+    echo "UNO_ROUTER_IO_LOG:${UNO_ROUTER_IO_LOG}"
     echo "SUBAGENT_INCLUDE_STEP_LOGS:${SUBAGENT_INCLUDE_STEP_LOGS}"
     echo "SUBAGENT_ENABLE_SKILLS:${SUBAGENT_ENABLE_SKILLS}"
     echo "SUBAGENT_SKILLS_TOP_K:${SUBAGENT_SKILLS_TOP_K}"
