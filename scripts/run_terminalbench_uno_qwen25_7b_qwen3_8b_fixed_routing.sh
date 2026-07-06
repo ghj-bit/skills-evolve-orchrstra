@@ -10,9 +10,9 @@ if [[ -f "${PROJECT_DIR}/.env" ]]; then
     set +a
 fi
 
-UNO_ROUTER_API_BASE="${UNO_ROUTER_API_BASE:-https://notebook-inspire.sii.edu.cn/ws-9dcc0e1f-80a4-4af2-bc2f-0e352e7b17e6/project-b795c114-135a-40db-b3d0-19b60f25237b/user-543feed4-0be2-4972-8987-a324af06c93f/vscode/3a8e9a70-c91e-459d-ad61-e9b54493df6c/56895634-de5f-49fe-8059-87ff92018951/proxy/8042/v1}"
-PLANNER_MODEL_ID="${PLANNER_MODEL_ID:-uno_qwen2.5-7B}"
-ROUTER_MODEL_ID="${ROUTER_MODEL_ID:-uno_qwen2.5-7B}"
+UNO_ROUTER_API_BASE="${UNO_ROUTER_API_BASE:-https://notebook-inspire.sii.edu.cn/ws-9dcc0e1f-80a4-4af2-bc2f-0e352e7b17e6/project-b795c114-135a-40db-b3d0-19b60f25237b/user-543feed4-0be2-4972-8987-a324af06c93f/vscode/3a8e9a70-c91e-459d-ad61-e9b54493df6c/e5808f80-5446-4406-b9f2-18f284c91563/proxy/8000/v1}"
+PLANNER_MODEL_ID="${PLANNER_MODEL_ID:-Qwen/Qwen2.5-7B-Instruct}"
+ROUTER_MODEL_ID="${ROUTER_MODEL_ID:-Qwen/Qwen2.5-7B-Instruct}"
 WORKER_MODEL_ID="${WORKER_MODEL_ID:-${OPENROUTER_MODEL:-Qwen/Qwen3-8B}}"
 DEEPSEEK_API_BASE="${DEEPSEEK_API_BASE:-https://api.deepseek.com}"
 QWEN_API_BASE="${QWEN_API_BASE:-${OPENROUTER_BASE_URL:-https://api.siliconflow.cn/v1}}"
