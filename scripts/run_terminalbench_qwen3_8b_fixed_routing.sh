@@ -48,7 +48,7 @@ export TERMINALBENCH_TASK_END="${TERMINALBENCH_TASK_END:-}"
 # Empty TERMINALBENCH_TASK_IDS means run every Terminal-Bench task discovered by the loader.
 export TERMINALBENCH_TASK_IDS="${TERMINALBENCH_TASK_IDS:-}"
 export TERMINALBENCH_VERBOSE="${TERMINALBENCH_VERBOSE:-1}"
-export TERMINALBENCH_DOCKER_MONITOR="${TERMINALBENCH_DOCKER_MONITOR:-1}"
+export TERMINALBENCH_DOCKER_MONITOR="${TERMINALBENCH_DOCKER_MONITOR:-0}"
 export TERMINALBENCH_DOCKER_MONITOR_INTERVAL="${TERMINALBENCH_DOCKER_MONITOR_INTERVAL:-20}"
 export TERMINALBENCH_DOCKER_IMAGE_PREFIX="${TERMINALBENCH_DOCKER_IMAGE_PREFIX:-alexgshaw}"
 export TERMINALBENCH_DOCKER_IMAGE_TAG="${TERMINALBENCH_DOCKER_IMAGE_TAG:-20251031}"
@@ -275,12 +275,7 @@ monitor_verified_task_docker() {
                         | grep -E "^${prefix}.*-main-1$" || true
                 )
 
-                if docker image inspect "${image_name}" >/dev/null 2>&1; then
-                    echo "Removing verified task image: ${image_name}" >> "${monitor_log}"
-                    docker rmi "${image_name}" >> "${monitor_log}" 2>&1 || true
-                else
-                    echo "Task image not present or already removed: ${image_name}" >> "${monitor_log}"
-                fi
+                echo "Preserving verified task image: ${image_name}" >> "${monitor_log}"
             done < <(
                 python - "${verify_file}" <<'PY'
 import json
