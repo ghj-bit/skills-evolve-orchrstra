@@ -11,14 +11,20 @@ if [[ -f "${PROJECT_DIR}/.env" ]]; then
 fi
 
 PLANNER_MODEL_ID="${PLANNER_MODEL_ID:-${MODEL_ID:-${DEEPSEEK_MODEL_ID:-deepseek-v4-flash}}}"
-ROUTER_MODEL_ID="${ROUTER_MODEL_ID:-${OPENROUTER_MODEL:-Qwen/Qwen3-8B}}"
-WORKER_MODEL_ID="${WORKER_MODEL_ID:-${OPENROUTER_MODEL:-Qwen/Qwen3-8B}}"
+# Previous Qwen3-8B defaults:
+# ROUTER_MODEL_ID="${ROUTER_MODEL_ID:-${OPENROUTER_MODEL:-Qwen/Qwen3-8B}}"
+# WORKER_MODEL_ID="${WORKER_MODEL_ID:-${OPENROUTER_MODEL:-Qwen/Qwen3-8B}}"
+ROUTER_MODEL_ID="${ROUTER_MODEL_ID:-qwen3-8B}"
+WORKER_MODEL_ID="${WORKER_MODEL_ID:-qwen3-8B}"
 DEEPSEEK_API_BASE="${DEEPSEEK_API_BASE:-https://api.deepseek.com}"
-QWEN_API_BASE="${QWEN_API_BASE:-${OPENROUTER_BASE_URL:-https://api.siliconflow.cn/v1}}"
+# Previous Qwen3-8B endpoint defaults:
+# QWEN_API_BASE="${QWEN_API_BASE:-${OPENROUTER_BASE_URL:-https://api.siliconflow.cn/v1}}"
+# QWEN_API_KEY="${QWEN_API_KEY:-${SILICONFLOW_API_KEY:-}}"
+QWEN_API_BASE="https://notebook-inspire.sii.edu.cn/ws-9dcc0e1f-80a4-4af2-bc2f-0e352e7b17e6/project-b795c114-135a-40db-b3d0-19b60f25237b/user-543feed4-0be2-4972-8987-a324af06c93f/vscode/4a7c22e1-2ea5-4c8a-8f1e-7c47a4734b85/23a19c9e-d4a3-47dc-a092-0071a997c1d6/proxy/8042/v1"
 API_BASE="${DEEPSEEK_API_BASE}"
 LOCAL_BASE="${DEEPSEEK_API_BASE}"
 API_KEY="${DEEPSEEK_API_KEY:-${API_KEY:-}}"
-QWEN_API_KEY="${QWEN_API_KEY:-${SILICONFLOW_API_KEY:-}}"
+QWEN_API_KEY="empty"
 
 if [[ -z "${API_KEY}" ]]; then
     echo "DEEPSEEK_API_KEY or API_KEY must be set before running this script." >&2
