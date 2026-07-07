@@ -29,6 +29,75 @@ def _write_router_io_log(record: dict) -> None:
         return
 
 
+def _available_tool_names(tools) -> set[str]:
+    names: set[str] = set()
+    for tool in tools or []:
+        fn = tool.get("function") if isinstance(tool, dict) else None
+        name = fn.get("name") if isinstance(fn, dict) else None
+        if name:
+            names.add(name)
+    return names
+
+
+def _loads_first_json_object_once(text: str):
+    decoder = json.JSONDecoder()
+    for idx, char in enumerate(text):
+        if char not in "[{":
+            continue
+        try:
+            obj, _ = decoder.raw_decode(text[idx:])
+            return obj
+        except json.JSONDecodeError:
+            continue
+    return None
+
+
+def _decode_escaped_text(text: str) -> str:
+    try:
+        return json.loads('"' + text.replace("\r", "\\r").replace("\n", "\\n") + '"')
+    except json.JSONDecodeError:
+        return text
+
+
+def _loads_first_json_object(text: str):
+    parsed = _loads_first_json_object_once(text)
+    if parsed is not None:
+        return parsed
+    decoded = _decode_escaped_text(text)
+    if decoded != text:
+        return _loads_first_json_object_once(decoded)
+    return None
+
+
+def _parse_text_tool_calls(content: str | None, tools=None) -> list[dict]:
+    """Fallback for models that print a tool call instead of using OpenAI tools."""
+    if not content:
+        return []
+    parsed = _loads_first_json_object(content)
+    if not isinstance(parsed, dict):
+        return []
+
+    calls = parsed.get("tool_calls") if isinstance(parsed.get("tool_calls"), list) else [parsed]
+    allowed_names = _available_tool_names(tools)
+    tool_calls = []
+    for idx, call in enumerate(calls):
+        if not isinstance(call, dict):
+            continue
+        name = call.get("name")
+        args = call.get("arguments", {})
+        if not name or (allowed_names and name not in allowed_names):
+            continue
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except json.JSONDecodeError:
+                args = {"_raw": args}
+        if not isinstance(args, dict):
+            args = {"_raw": args}
+        tool_calls.append({"id": call.get("id", f"text_tool_call_{idx}"), "name": name, "arguments": args})
+    return tool_calls
+
+
 class PlannerRouter(UnoSFT):
     """Paper-style unified Uno router."""
 
@@ -111,6 +180,8 @@ class PlannerRouter(UnoSFT):
             except Exception:
                 args = {"_raw": tc.function.arguments}
             tool_calls.append({"id": tc.id, "name": tc.function.name, "arguments": args})
+        if not tool_calls:
+            tool_calls = _parse_text_tool_calls(msg.content, tools=tools)
         _write_router_io_log(
             {
                 "timestamp": request_started_at,
