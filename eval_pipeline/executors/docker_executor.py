@@ -14,6 +14,16 @@ from .base_executor import BaseExecutor
 from .docker_manager import DockerComposeEnvVars, DockerComposeManager
 
 
+def _prepull_images_enabled() -> bool:
+    return os.environ.get("TERMINALBENCH_PREPULL_IMAGES", "1").strip().lower() not in {
+        "",
+        "0",
+        "false",
+        "no",
+        "off",
+    }
+
+
 def _safe_docker_name(value: str) -> str:
     return re.sub(r"[^a-z0-9_-]+", "-", value.lower()).strip("-")
 
@@ -280,7 +290,7 @@ class DockerExecutor(BaseExecutor):
             env_dict = os.environ.copy()
             env_dict.update(self.env_vars.to_env_dict())
 
-            if use_prebuilt:
+            if use_prebuilt and _prepull_images_enabled():
                 # Pull prebuilt image if not exists locally
                 logger.info(f"Checking image: {self.image_name}")
                 
@@ -308,6 +318,10 @@ class DockerExecutor(BaseExecutor):
                     if result.returncode != 0:
                         raise RuntimeError(f"Failed to pull image: {result.stderr}")
                     logger.info(f"✓ Image pulled successfully")
+            elif use_prebuilt:
+                logger.info(
+                    "Skipping prebuilt image pre-pull because TERMINALBENCH_PREPULL_IMAGES=0"
+                )
             else:
                 # Build image from Dockerfile (in thread pool to avoid blocking)
                 logger.info(f"Building image: {self.image_name}")

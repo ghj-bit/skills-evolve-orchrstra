@@ -200,6 +200,7 @@ trap 'cleanup TERM' TERM
     echo "docker_monitor_interval:${TERMINALBENCH_DOCKER_MONITOR_INTERVAL}"
     echo "docker_image_prefix:${TERMINALBENCH_DOCKER_IMAGE_PREFIX}"
     echo "docker_image_tag:${TERMINALBENCH_DOCKER_IMAGE_TAG}"
+    echo "docker_prepull_images:${TERMINALBENCH_PREPULL_IMAGES:-1}"
     echo "ORIGINAL_UNO_POOLS_PATH:${ORIGINAL_UNO_POOLS_PATH}"
     echo "UNO_POOLS_PATH:${UNO_POOLS_PATH}"
     echo "SUBAGENT_INCLUDE_STEP_LOGS:${SUBAGENT_INCLUDE_STEP_LOGS}"

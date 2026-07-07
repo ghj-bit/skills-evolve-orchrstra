@@ -41,6 +41,7 @@ TASK_IDS=(
 )
 
 export TERMINALBENCH_TASK_IDS="${TASK_IDS[*]}"
+export TERMINALBENCH_PREPULL_IMAGES="${TERMINALBENCH_PREPULL_IMAGES:-0}"
 export MAX_TASKS=""
 export RUN_NAME="${RUN_NAME:-deepseek_v4_pro_qwen3_8b_router_terminalbench_remaining_tasks}"
 
