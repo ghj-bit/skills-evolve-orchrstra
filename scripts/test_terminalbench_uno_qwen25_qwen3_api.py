@@ -28,7 +28,7 @@ DEFAULT_ROUTER_API_BASE = (
     "project-b795c114-135a-40db-b3d0-19b60f25237b/"
     "user-543feed4-0be2-4972-8987-a324af06c93f/"
     "vscode/3a8e9a70-c91e-459d-ad61-e9b54493df6c/"
-    "e5808f80-5446-4406-b9f2-18f284c91563/"
+    "1dbfe76a-1f3b-479a-83c4-a1c6377bde6f/"
     "proxy/8000/v1"
 )
 DEFAULT_ROUTER_MODEL = "Qwen/Qwen2.5-7B-Instruct"
