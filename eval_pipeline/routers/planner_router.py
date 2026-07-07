@@ -98,6 +98,12 @@ def _parse_text_tool_calls(content: str | None, tools=None) -> list[dict]:
     return tool_calls
 
 
+def _is_deepseek_planner(model: str, api_base: str) -> bool:
+    model_l = (model or "").lower()
+    api_base_l = (api_base or "").lower()
+    return "deepseek" in model_l or "deepseek" in api_base_l
+
+
 class PlannerRouter(UnoSFT):
     """Paper-style unified Uno router."""
 
@@ -133,6 +139,7 @@ class PlannerRouter(UnoSFT):
         self.router_model = model_name
         self.planner_temperature = planner_temperature
         self.router_temperature = router_temperature
+        self.planner_api_base = planner_api_base
         self.chat_client = openai.OpenAI(base_url=planner_api_base, api_key=planner_api_key)
 
     @property
@@ -152,6 +159,8 @@ class PlannerRouter(UnoSFT):
         if tools:
             call_kw["tools"] = tools
             call_kw["tool_choice"] = kw.get("tool_choice", "auto")
+        if _is_deepseek_planner(self.planner_model, self.planner_api_base):
+            call_kw["extra_body"] = {"thinking": {"type": "disabled"}}
 
         request_started_at = datetime.now(timezone.utc).isoformat()
         request_meta = {k: v for k, v in call_kw.items() if k not in {"messages", "tools"}}
