@@ -51,7 +51,12 @@ class UnoSFT(BaseRouter):
     def __init__(self, local_base=DEFAULT_LOCAL_BASE, api_base=DEFAULT_API_BASE,
                  api_key="EMPTY", model_name="Uno-SFT", local_api_key="EMPTY",
                  max_rounds=3, system_prompt=None):
-        self.local = openai.OpenAI(base_url=local_base, api_key=local_api_key)
+        local_timeout = float(os.environ.get("UNO_ROUTER_TIMEOUT", "120"))
+        self.local = openai.OpenAI(
+            base_url=local_base,
+            api_key=local_api_key,
+            timeout=local_timeout,
+        )
         self.harness = build_default_harness(
             api_key=api_key,
             base_url=api_base,

@@ -7,6 +7,7 @@ Verify:  Correct tool name selection (+ argument overlap)
 """
 import re
 import json
+import os
 from typing import List
 from .base import BaseBenchmark, Task, VerifyResult
 
@@ -61,12 +62,22 @@ class ToolBench(BaseBenchmark):
         return "ToolBench"
 
     def load(self, max_tasks=None) -> List[Task]:
-        from datasets import load_dataset
-        ds = load_dataset(self.dataset, split=self.split, trust_remote_code=True)
+        from datasets import load_dataset, load_from_disk
+
+        local_data_dir = os.environ.get("TOOLBENCH_DATA_DIR", "").strip()
+        if local_data_dir:
+            if not os.path.isdir(local_data_dir):
+                raise FileNotFoundError(
+                    f"TOOLBENCH_DATA_DIR does not exist: {local_data_dir}. "
+                    "Run scripts/download_toolbench_data.sh first, or unset TOOLBENCH_DATA_DIR "
+                    "to load from Hugging Face cache/remote."
+                )
+            ds_obj = load_from_disk(local_data_dir)
+            ds = ds_obj[self.split] if hasattr(ds_obj, "keys") and self.split in ds_obj else ds_obj
+        else:
+            ds = load_dataset(self.dataset, split=self.split)
 
         limit = max_tasks or self.max_default
-        if limit and limit < len(ds):
-            ds = ds.select(range(limit))
 
         tasks = []
         for i, row in enumerate(ds):
@@ -76,7 +87,7 @@ class ToolBench(BaseBenchmark):
                 continue
 
             # Extract system prompt (tool definitions), user query, gold response
-            system_msg = ""
+            system_msg = row.get("system", "") or ""
             user_query = ""
             gold_response = ""
             for msg in convos:
@@ -84,9 +95,9 @@ class ToolBench(BaseBenchmark):
                 content = msg.get("value", msg.get("content", ""))
                 if role == "system":
                     system_msg = content
-                elif role == "human":
+                elif role in {"human", "user"}:
                     user_query = content
-                elif role == "gpt":
+                elif role in {"gpt", "assistant"}:
                     gold_response = content
 
             if not user_query or not gold_response:
@@ -109,6 +120,8 @@ class ToolBench(BaseBenchmark):
                 context={"tools": system_msg},
                 gold=gold_response,
             ))
+            if limit and len(tasks) >= limit:
+                break
         return tasks
 
     def extract_answer(self, router_output: str, task: Task) -> str:
