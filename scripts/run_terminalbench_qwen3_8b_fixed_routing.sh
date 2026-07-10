@@ -70,6 +70,10 @@ if [[ -n "${SUBAGENT_SUMMARY_MODEL_ID}" ]]; then
     export SUBAGENT_SUMMARY_MAX_TOKENS="${SUBAGENT_SUMMARY_MAX_TOKENS:-512}"
 fi
 export TERMINAL_BENCH_SKILLS_PATH="${TERMINAL_BENCH_SKILLS_PATH:-${PROJECT_DIR}/terminal_bench_skills_init.json}"
+REMOTE_DOCKER_ENABLED=0
+if [[ "${UNO_DOCKER_EXECUTOR:-}" =~ ^(remote|http|server)$ || -n "${UNO_REMOTE_DOCKER_URL:-}" ]]; then
+    REMOTE_DOCKER_ENABLED=1
+fi
 ORIGINAL_UNO_POOLS_PATH="${UNO_POOLS_PATH:-${PROJECT_DIR}/configs/pools.deepseek_v32.yaml}"
 TIMESTAMP="$(date +%Y%m%d_%H%M)"
 OUT_DIR="${EVAL_OUT}/${RUN_NAME}_${TIMESTAMP}"
@@ -141,6 +145,13 @@ RUN_PID=""
 MONITOR_PID=""
 
 check_docker() {
+    if [[ "${REMOTE_DOCKER_ENABLED}" == "1" ]]; then
+        {
+            echo "Docker preflight skipped: remote Docker executor is enabled."
+            echo "UNO_REMOTE_DOCKER_URL=${UNO_REMOTE_DOCKER_URL:-}"
+        } >> "${LOG_FILE}"
+        return 0
+    fi
     if ! command -v docker >/dev/null 2>&1; then
         {
             echo "Docker preflight failed: docker command not found."
@@ -203,6 +214,9 @@ trap 'cleanup TERM' TERM
     echo "task_end:      ${TERMINALBENCH_TASK_END}"
     echo "task_ids:      ${TERMINALBENCH_TASK_IDS}"
     echo "docker_monitor:${TERMINALBENCH_DOCKER_MONITOR}"
+    echo "remote_docker_enabled:${REMOTE_DOCKER_ENABLED}"
+    echo "UNO_DOCKER_EXECUTOR:${UNO_DOCKER_EXECUTOR:-}"
+    echo "UNO_REMOTE_DOCKER_URL:${UNO_REMOTE_DOCKER_URL:-}"
     echo "docker_monitor_interval:${TERMINALBENCH_DOCKER_MONITOR_INTERVAL}"
     echo "docker_image_prefix:${TERMINALBENCH_DOCKER_IMAGE_PREFIX}"
     echo "docker_image_tag:${TERMINALBENCH_DOCKER_IMAGE_TAG}"
@@ -312,10 +326,12 @@ PY
 }
 
 cd "${PROJECT_DIR}"
-if [[ "${TERMINALBENCH_DOCKER_MONITOR}" == "1" ]]; then
+if [[ "${TERMINALBENCH_DOCKER_MONITOR}" == "1" && "${REMOTE_DOCKER_ENABLED}" != "1" ]]; then
     monitor_verified_task_docker &
     MONITOR_PID=$!
     echo "Docker monitor enabled with pid ${MONITOR_PID}." >> "${LOG_FILE}"
+elif [[ "${TERMINALBENCH_DOCKER_MONITOR}" == "1" ]]; then
+    echo "Docker monitor skipped: remote Docker executor is enabled." >> "${LOG_FILE}"
 fi
 "${CMD[@]}" >> "${LOG_FILE}" 2>&1 &
 RUN_PID=$!
