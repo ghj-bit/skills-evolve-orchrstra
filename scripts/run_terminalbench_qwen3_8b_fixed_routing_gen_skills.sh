@@ -18,7 +18,7 @@ QWEN_API_BASE="${QWEN_API_BASE:-${OPENROUTER_BASE_URL:-https://api.siliconflow.c
 API_BASE="${DEEPSEEK_API_BASE}"
 LOCAL_BASE="${DEEPSEEK_API_BASE}"
 API_KEY="${DEEPSEEK_API_KEY:-${API_KEY:-}}"
-QWEN_API_KEY="${QWEN_API_KEY:-${SILICONFLOW_API_KEY:-}}"
+QWEN_API_KEY="sk-pxkilcizfehoqqwmovhmrxgbnpfykhpieovhprctstqdmrsr"
 
 if [[ -z "${API_KEY}" ]]; then
     echo "DEEPSEEK_API_KEY or API_KEY must be set before running this script." >&2

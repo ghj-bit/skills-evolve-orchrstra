@@ -37,7 +37,7 @@ models:
     usd_per_1m_input: 0.072
     usd_per_1m_output: 0.287
     api_base: https://api.siliconflow.com/v1
-    api_key: ${SILICONFLOW_API_KEY}
+    api_key: sk-pxkilcizfehoqqwmovhmrxgbnpfykhpieovhprctstqdmrsr
     description: >
       Alibaba Qwen3 dense 8B model served through SiliconFlow. Hybrid thinking
       model for general chat, coding, math, and efficient agent worker calls.

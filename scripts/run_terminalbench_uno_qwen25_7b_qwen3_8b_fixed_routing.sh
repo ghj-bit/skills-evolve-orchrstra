@@ -19,7 +19,7 @@ QWEN_API_BASE="${QWEN_API_BASE:-${OPENROUTER_BASE_URL:-https://api.siliconflow.c
 API_BASE="${UNO_ROUTER_API_BASE}"
 LOCAL_BASE="${UNO_ROUTER_API_BASE}"
 API_KEY="${UNO_ROUTER_API_KEY:-empty}"
-QWEN_API_KEY="${QWEN_API_KEY:-${SILICONFLOW_API_KEY:-}}"
+QWEN_API_KEY="sk-pxkilcizfehoqqwmovhmrxgbnpfykhpieovhprctstqdmrsr"
 
 if [[ -z "${QWEN_API_KEY}" ]]; then
     echo "QWEN_API_KEY or SILICONFLOW_API_KEY must be set before running this script." >&2
