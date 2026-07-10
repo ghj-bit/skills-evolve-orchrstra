@@ -352,6 +352,10 @@ RULES:
 - Prefer pip over apt when possible (faster, fewer lock issues).
 - Long commands: chain with && to avoid partial failure.
 - If a command times out or fails, try a simpler alternative.
+- If the task writes `/output/command_capture.txt`, put only the requested
+  command's stdout/stderr in that file. Do not append confirmation text,
+  exit status, ls/cat debug output, or file-size checks to it; print such
+  checks to the terminal log instead.
 - You MUST call finish before running out of steps!
 
 OUTPUT FORMAT:

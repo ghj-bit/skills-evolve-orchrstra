@@ -31,12 +31,12 @@ def _safe_docker_name(value: str) -> str:
 APT_PIP_MIRROR_INJECTION = """# tbench mirror injection: begin
 RUN set -eux; \\
     if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then \\
-      sed -i 's|http://archive.ubuntu.com/ubuntu|https://mirrors.tuna.tsinghua.edu.cn/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources; \\
-      sed -i 's|http://security.ubuntu.com/ubuntu|https://mirrors.tuna.tsinghua.edu.cn/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources; \\
+      sed -i 's|http://archive.ubuntu.com/ubuntu|http://mirrors.tuna.tsinghua.edu.cn/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources; \\
+      sed -i 's|http://security.ubuntu.com/ubuntu|http://mirrors.tuna.tsinghua.edu.cn/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources; \\
     fi; \\
     if [ -f /etc/apt/sources.list ]; then \\
-      sed -i 's|http://archive.ubuntu.com/ubuntu|https://mirrors.tuna.tsinghua.edu.cn/ubuntu|g' /etc/apt/sources.list; \\
-      sed -i 's|http://security.ubuntu.com/ubuntu|https://mirrors.tuna.tsinghua.edu.cn/ubuntu|g' /etc/apt/sources.list; \\
+      sed -i 's|http://archive.ubuntu.com/ubuntu|http://mirrors.tuna.tsinghua.edu.cn/ubuntu|g' /etc/apt/sources.list; \\
+      sed -i 's|http://security.ubuntu.com/ubuntu|http://mirrors.tuna.tsinghua.edu.cn/ubuntu|g' /etc/apt/sources.list; \\
     fi; \\
     if [ -f /etc/apt/sources.list.d/debian.sources ]; then \\
       sed -i 's|http://deb.debian.org/debian|https://mirrors.tuna.tsinghua.edu.cn/debian|g' /etc/apt/sources.list.d/debian.sources; \\
@@ -447,52 +447,64 @@ class DockerExecutor(BaseExecutor):
 
         try:
             # Create /tests directory in container (async)
-            await asyncio.to_thread(
+            mkdir_result = await asyncio.to_thread(
                 subprocess.run,
                 ["docker", "exec", self.container_id, "mkdir", "-p", "/tests"],
                 capture_output=True,
                 text=True,
                 timeout=10,
             )
-
-            # Copy test script to container (async)
-            await asyncio.to_thread(
-                subprocess.run,
-                ["docker", "cp", str(test_script), f"{self.container_id}:/tmp/test.sh"],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
+            if mkdir_result.returncode != 0:
+                logger.error(
+                    "Verifier setup failed creating /tests: stdout=%r stderr=%r",
+                    mkdir_result.stdout,
+                    mkdir_result.stderr,
+                )
+                return 0.0
 
             # Copy test files to container (async)
             tests_dir = self.task_dir / "tests"
             if tests_dir.exists():
-                for test_file in tests_dir.glob("*.py"):
-                    await asyncio.to_thread(
-                        subprocess.run,
-                        ["docker", "cp", str(test_file), f"{self.container_id}:/tests/"],
-                        capture_output=True,
-                        text=True,
-                        timeout=30,
+                copy_result = await asyncio.to_thread(
+                    subprocess.run,
+                    ["docker", "cp", f"{str(tests_dir)}{os.sep}.", f"{self.container_id}:/tests/"],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                if copy_result.returncode != 0:
+                    logger.error(
+                        "Verifier setup failed copying tests directory %s: stdout=%r stderr=%r",
+                        tests_dir,
+                        copy_result.stdout,
+                        copy_result.stderr,
                     )
+                    return 0.0
+            else:
+                logger.error("Verifier tests directory not found: %s", tests_dir)
+                return 0.0
 
             proxy_exports = _container_proxy_exports()
-            proxy_setup = f"{proxy_exports}; bash /tmp/test.sh" if proxy_exports else "bash /tmp/test.sh"
-            proc = await asyncio.create_subprocess_exec(
-                "docker", "exec", self.container_id, "bash", "-c", proxy_setup,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-            )
+            proxy_setup = f"{proxy_exports}; bash /tests/test.sh" if proxy_exports else "bash /tests/test.sh"
 
             # Get test timeout from task config
             test_timeout = self.task_config.get("verifier", {}).get("timeout_sec", 900)
 
-            stdout, _ = await asyncio.wait_for(
-                proc.communicate(),
+            proc = await asyncio.to_thread(
+                subprocess.run,
+                ["docker", "exec", self.container_id, "bash", "-c", proxy_setup],
+                capture_output=True,
+                text=True,
                 timeout=test_timeout
             )
 
-            output = stdout.decode("utf-8", errors="replace")
+            output = (proc.stdout or "") + (proc.stderr or "")
+            if proc.returncode != 0:
+                logger.error(
+                    "Verifier test script failed with status %s. Output:\n%s",
+                    proc.returncode,
+                    output,
+                )
 
             # Save test output to verifier log file
             test_log = self.verifier_logs_dir / "test_output.log"
@@ -520,14 +532,18 @@ class DockerExecutor(BaseExecutor):
                     logger.error(f"Invalid reward value: {reward_str}")
                     return 0.0
             else:
-                logger.error("Failed to read reward file")
+                logger.error(
+                    "Failed to read verifier reward file: stdout=%r stderr=%r",
+                    result.stdout,
+                    result.stderr,
+                )
                 return 0.0
 
         except asyncio.TimeoutError:
             logger.error("Test execution timed out")
             return 0.0
         except Exception as e:
-            logger.error(f"Error running tests: {e}")
+            logger.exception("Error running tests (%s): %r", type(e).__name__, e)
             return 0.0
 
     def _cleanup_temp_dockerfile(self):

@@ -76,8 +76,11 @@ echo "GAIA local data: ${GAIA_DATA_DIR}"
 for BENCH in "${SELECTED_BENCHMARKS[@]}"; do
   OUT_DIR="${EVAL_OUT}/${MODEL_NAME}_planner/${BENCH}"
   BENCH_EXTRA=()
-  if [[ "${BENCH}" == "swebench" || "${BENCH}" == "terminalbench" ]]; then
+  RUN_ENV=()
+  if [[ "${BENCH}" == "terminalbench" ]]; then
     BENCH_EXTRA=(--interactive)
+  elif [[ "${BENCH}" == "swebench" ]]; then
+    RUN_ENV=(env UNO_SWEBENCH_BACKEND=1)
   fi
 
   CMD=(
@@ -105,11 +108,15 @@ for BENCH in "${SELECTED_BENCHMARKS[@]}"; do
 
   if [[ "${DRY_RUN}" == "true" ]]; then
     printf '[DRY] '
+    printf '%q ' "${RUN_ENV[@]}"
     printf '%q ' "${CMD[@]}"
     printf '\n'
   else
     echo "[RUN] ${MODEL_NAME} ${BENCH}"
-    "${CMD[@]}" 2>&1 | tee "${OUT_DIR}.log"
+    if [[ "${BENCH}" == "swebench" ]]; then
+      echo "[MODE] swebench planning route (UNO_SWEBENCH_BACKEND=1)"
+    fi
+    "${RUN_ENV[@]}" "${CMD[@]}" 2>&1 | tee "${OUT_DIR}.log"
   fi
 done
 

@@ -3,6 +3,7 @@ import os
 import queue
 import argparse
 import threading
+import traceback
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
@@ -123,9 +124,7 @@ def run_pipeline(router: BaseRouter, bench: BaseBenchmark, args):
     need_verify = [t for t in tasks if t.task_id not in verification]
 
     # Interactive mode: router ↔ Docker multi-turn (for both SWE-bench and Terminal-Bench)
-    is_interactive = (hasattr(router, 'local') and hasattr(router, 'model_name')
-                      and hasattr(bench, 'interactive_verify')
-                      and args.interactive)
+    is_interactive = hasattr(bench, 'interactive_verify') and args.interactive
 
     # Pipeline mode: planner → router → sub-agent → Docker (our method)
     is_pipeline = (hasattr(bench, 'pipeline_verify') and getattr(args, 'pipeline', False))
@@ -359,6 +358,8 @@ def _read_interactive_attempt_entry(task, attempt_index: int, attempt_logs: str,
                                     reward: float, error: str | None) -> dict:
     """Read Terminal-Bench trajectory usage for one pass@k attempt."""
     trajectory_path = Path(attempt_logs) / task.task_id / "trajectory.json"
+    if not trajectory_path.exists():
+        trajectory_path = Path(attempt_logs) / task.task_id.replace("/", "_") / "trajectory.json"
     entry = {
         "attempt": attempt_index,
         "attempt_dir": f"attempt_{attempt_index}",
@@ -532,41 +533,83 @@ def _run_pipelined(router, bench, tasks, need_gen, need_verify,
     for t in already_gen_unverified:
         verify_queue.put((t, predictions[t.task_id]["answer"]))
     print(f"Pipeline: {len(already_gen_unverified)} ready for verification, "
-          f"{len(need_gen)} need generation")
+          f"{len(need_gen)} need generation", flush=True)
+    print(f"Pipeline tasks: {[t.task_id for t in tasks]}", flush=True)
 
     total_to_verify = len(already_gen_unverified) + len(need_gen)
     pbar = tqdm(total=total_to_verify, desc="Pipeline (gen+verify)")
 
     # ── Generator thread ──
     def generator():
-        if args.skip_gen or not need_gen:
+        try:
+            if args.skip_gen or not need_gen:
+                print("Pipeline generator: skipped", flush=True)
+                return
+            print(
+                f"Pipeline generator: starting {len(need_gen)} task(s) "
+                f"with {args.gen_workers} worker(s)",
+                flush=True,
+            )
+            with open(pred_file, "a") as fout:
+                with ThreadPoolExecutor(max_workers=args.gen_workers) as ex:
+                    futs = {}
+                    for t in need_gen:
+                        print(f"Pipeline generator: submit {t.task_id}", flush=True)
+                        futs[ex.submit(_gen_one, router, bench, t, logs_dir)] = t
+                    for fut in as_completed(futs):
+                        task = futs[fut]
+                        print(f"Pipeline generator: completed future for {task.task_id}", flush=True)
+                        try:
+                            entry = fut.result()
+                        except Exception as exc:
+                            print(
+                                f"Pipeline generator: ERROR for {task.task_id}: "
+                                f"{type(exc).__name__}: {exc}",
+                                flush=True,
+                            )
+                            print(traceback.format_exc(), flush=True)
+                            entry = {
+                                "task_id": task.task_id,
+                                "answer": "",
+                                "full_trace": "",
+                                "route_count": 0,
+                                "routed_models": [],
+                                "routed_skills": [],
+                                "routed_backends": [],
+                                "cost": 0,
+                                "tokens": 0,
+                                "prompt_tokens": 0,
+                                "completion_tokens": 0,
+                                "error": f"{type(exc).__name__}: {exc}",
+                            }
+                        with pred_lock:
+                            predictions[entry["task_id"]] = entry
+                            fout.write(json.dumps(entry) + "\n")
+                            fout.flush()
+                        print(f"Pipeline generator: wrote prediction {entry['task_id']}", flush=True)
+                        # Push to verify queue immediately
+                        if task.task_id not in verification:
+                            verify_queue.put((task, entry["answer"]))
+                            print(f"Pipeline generator: queued verification {task.task_id}", flush=True)
+        finally:
             gen_done.set()
-            return
-        with open(pred_file, "a") as fout:
-            with ThreadPoolExecutor(max_workers=args.gen_workers) as ex:
-                futs = {ex.submit(_gen_one, router, bench, t): t for t in need_gen}
-                for fut in as_completed(futs):
-                    entry = fut.result()
-                    task = futs[fut]
-                    with pred_lock:
-                        predictions[entry["task_id"]] = entry
-                        fout.write(json.dumps(entry) + "\n")
-                        fout.flush()
-                    # Push to verify queue immediately
-                    if task.task_id not in verification:
-                        verify_queue.put((task, entry["answer"]))
-        gen_done.set()
+            print("Pipeline generator: done", flush=True)
 
     # ── Verifier thread ──
     def verifier():
         with open(verify_file, "a") as fout:
             with ThreadPoolExecutor(max_workers=args.verify_workers) as ex:
                 pending = {}
+                print(
+                    f"Pipeline verifier: starting with {args.verify_workers} worker(s)",
+                    flush=True,
+                )
                 while True:
                     # Drain queue
                     while True:
                         try:
                             task, answer = verify_queue.get_nowait()
+                            print(f"Pipeline verifier: submit {task.task_id}", flush=True)
                             fut = ex.submit(bench.verify, task, answer, logs_dir)
                             pending[fut] = task
                         except queue.Empty:
@@ -576,7 +619,22 @@ def _run_pipelined(router, bench, tasks, need_gen, need_verify,
                     done_futs = [f for f in pending if f.done()]
                     for fut in done_futs:
                         task = pending.pop(fut)
-                        vr = fut.result()
+                        try:
+                            vr = fut.result()
+                        except Exception as exc:
+                            print(
+                                f"Pipeline verifier: ERROR for {task.task_id}: "
+                                f"{type(exc).__name__}: {exc}",
+                                flush=True,
+                            )
+                            print(traceback.format_exc(), flush=True)
+                            from .benchmarks.base import VerifyResult
+                            vr = VerifyResult(
+                                task.task_id,
+                                0.0,
+                                error=f"{type(exc).__name__}: {exc}",
+                                log=traceback.format_exc(),
+                            )
                         d = {"task_id": vr.task_id, "reward": vr.reward,
                              "error": vr.error, "log": vr.log[:500]}
                         with verify_lock:
@@ -590,6 +648,7 @@ def _run_pipelined(router, bench, tasks, need_gen, need_verify,
 
                     # Exit condition: generator done + queue empty + no pending
                     if gen_done.is_set() and verify_queue.empty() and not pending:
+                        print("Pipeline verifier: done", flush=True)
                         break
 
                     # Small sleep to avoid busy-wait
@@ -608,6 +667,7 @@ def _run_pipelined(router, bench, tasks, need_gen, need_verify,
 
 def _gen_one(router, bench, task, logs_dir=None):
     """Generate one prediction."""
+    print(f"Generate start: {task.task_id}", flush=True)
     executor = None
     swe_registered = False
     if (
@@ -634,6 +694,11 @@ def _gen_one(router, bench, task, logs_dir=None):
 
     try:
         res = router.route(task.question, task.context)
+        print(
+            f"Generate routed: {task.task_id} routes={res.route_count} "
+            f"models={res.routed_models}",
+            flush=True,
+        )
         answer = bench.extract_answer(res.answer, task)
         if executor is not None:
             diff, exit_code = _run_awaitable(
@@ -652,7 +717,7 @@ def _gen_one(router, bench, task, logs_dir=None):
         if executor is not None:
             _run_awaitable(executor.cleanup())
 
-    return {
+    entry = {
         "task_id": task.task_id, "answer": answer,
         "full_trace": res.full_trace, "route_count": res.route_count,
         "routed_models": res.routed_models, "routed_skills": res.routed_skills,
@@ -661,6 +726,8 @@ def _gen_one(router, bench, task, logs_dir=None):
         "prompt_tokens": res.prompt_tokens,
         "completion_tokens": res.completion_tokens,
     }
+    print(f"Generate done: {task.task_id}", flush=True)
+    return entry
 
 
 def _run_awaitable(awaitable):

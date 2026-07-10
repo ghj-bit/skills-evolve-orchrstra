@@ -43,8 +43,8 @@ UNO_VERBOSE_RESPONSES="${UNO_VERBOSE_RESPONSES:-1}"
 UNO_MAX_ROUNDS="${UNO_MAX_ROUNDS:-8}"
 export UNO_VERBOSE_RESPONSES UNO_MAX_ROUNDS
 
-MAX_TASKS_ARG=()
-SWE_MODE="${SWE_MODE:-interactive}"
+MAX_TASKS_ARG=(--max_tasks "${MAX_TASKS:-2}")
+SWE_MODE="${SWE_MODE:-planning}"
 OUT_SUFFIX="${OUT_SUFFIX:-}"
 DRY_RUN=false
 
@@ -102,13 +102,17 @@ export UNO_SWEBENCH_BACKEND
 if [[ -n "${OUT_SUFFIX}" ]]; then
   OUT_BENCH="${OUT_BENCH}_${OUT_SUFFIX}"
 fi
-OUT_DIR="${EVAL_OUT}/${MODEL_NAME}_planner/${OUT_BENCH}"
+RUN_TS="${RUN_TS:-$(date +%Y%m%d_%H%M%S)}"
+OUT_ROOT="${EVAL_OUT}/${MODEL_NAME}_planner/${RUN_TS}"
+OUT_DIR="${OUT_ROOT}/${OUT_BENCH}"
 
 echo "Model: ${MODEL_NAME}"
 echo "Router endpoint: ${LOCAL_BASE}"
 echo "Worker endpoint: ${API_BASE}"
 echo "Benchmark: ${BENCH}"
 echo "SWE mode: ${SWE_MODE}"
+echo "Run timestamp: ${RUN_TS}"
+echo "Output root: ${OUT_ROOT}"
 echo "Output dir: ${OUT_DIR}"
 echo "Uno pool: ${UNO_POOLS_PATH}"
 echo "Uno prompt: ${UNO_SYSTEM_PROMPT}"

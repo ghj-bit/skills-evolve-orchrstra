@@ -66,6 +66,7 @@ class ToolBench(BaseBenchmark):
 
         local_data_dir = os.environ.get("TOOLBENCH_DATA_DIR", "").strip()
         if local_data_dir:
+            print(f"[ToolBench] loading local dataset from TOOLBENCH_DATA_DIR={local_data_dir}", flush=True)
             if not os.path.isdir(local_data_dir):
                 raise FileNotFoundError(
                     f"TOOLBENCH_DATA_DIR does not exist: {local_data_dir}. "
@@ -75,9 +76,14 @@ class ToolBench(BaseBenchmark):
             ds_obj = load_from_disk(local_data_dir)
             ds = ds_obj[self.split] if hasattr(ds_obj, "keys") and self.split in ds_obj else ds_obj
         else:
+            print(f"[ToolBench] loading remote/cache dataset {self.dataset} split={self.split}", flush=True)
             ds = load_dataset(self.dataset, split=self.split)
 
         limit = max_tasks or self.max_default
+        try:
+            print(f"[ToolBench] dataset rows={len(ds)} limit={limit}", flush=True)
+        except TypeError:
+            print(f"[ToolBench] dataset rows=unknown limit={limit}", flush=True)
 
         tasks = []
         for i, row in enumerate(ds):
@@ -122,12 +128,18 @@ class ToolBench(BaseBenchmark):
             ))
             if limit and len(tasks) >= limit:
                 break
+        print(
+            f"[ToolBench] loaded tasks={len(tasks)} "
+            f"first_task={(tasks[0].task_id if tasks else 'NONE')}",
+            flush=True,
+        )
         return tasks
 
     def extract_answer(self, router_output: str, task: Task) -> str:
         return router_output
 
     def verify(self, task: Task, answer: str, logs_dir=None) -> VerifyResult:
+        print(f"[ToolBench] verify start task={task.task_id} answer_chars={len(answer or '')}", flush=True)
         pred_calls = _extract_function_calls(answer)
         gold_calls = _extract_function_calls(task.gold)
 
@@ -138,13 +150,21 @@ class ToolBench(BaseBenchmark):
             # Both refusals
             refusal_kw = ["cannot", "can't", "don't have", "unable", "not available"]
             if any(k in gold_norm for k in refusal_kw) and any(k in pred_norm for k in refusal_kw):
-                return VerifyResult(task.task_id, 1.0, log="both_refusal")
+                result = VerifyResult(task.task_id, 1.0, log="both_refusal")
+                print(f"[ToolBench] verify done task={task.task_id} reward={result.reward} log={result.log}", flush=True)
+                return result
             if gold_norm in pred_norm or pred_norm in gold_norm:
-                return VerifyResult(task.task_id, 1.0, log="text_match")
-            return VerifyResult(task.task_id, 0.0, log="no_gold_calls")
+                result = VerifyResult(task.task_id, 1.0, log="text_match")
+                print(f"[ToolBench] verify done task={task.task_id} reward={result.reward} log={result.log}", flush=True)
+                return result
+            result = VerifyResult(task.task_id, 0.0, log="no_gold_calls")
+            print(f"[ToolBench] verify done task={task.task_id} reward={result.reward} log={result.log}", flush=True)
+            return result
 
         if not pred_calls:
-            return VerifyResult(task.task_id, 0.0, log="no_pred_calls")
+            result = VerifyResult(task.task_id, 0.0, log="no_pred_calls")
+            print(f"[ToolBench] verify done task={task.task_id} reward={result.reward} log={result.log}", flush=True)
+            return result
 
         # Tool name overlap
         pred_names = {c["name"].lower() for c in pred_calls}
@@ -152,7 +172,9 @@ class ToolBench(BaseBenchmark):
         overlap = len(pred_names & gold_names) / len(gold_names)
         correct = overlap >= 0.5
 
-        return VerifyResult(
+        result = VerifyResult(
             task.task_id, 1.0 if correct else 0.0,
             log=f"overlap={overlap:.2f} pred={pred_names} gold={gold_names}",
         )
+        print(f"[ToolBench] verify done task={task.task_id} reward={result.reward} log={result.log}", flush=True)
+        return result

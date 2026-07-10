@@ -107,8 +107,11 @@ for model_spec in "${MODELS[@]}"; do
         TOTAL=$((TOTAL + 1))
         OUT_DIR="${EVAL_OUT}/${MODEL_NAME}/${BENCH}"
         BENCH_EXTRA=""
-        if [[ "${BENCH}" == "swebench" || "${BENCH}" == "terminalbench" ]]; then
+        RUN_ENV=""
+        if [[ "${BENCH}" == "terminalbench" ]]; then
             BENCH_EXTRA="--interactive"
+        elif [[ "${BENCH}" == "swebench" && "${ROUTER}" == "planner" ]]; then
+            RUN_ENV="UNO_SWEBENCH_BACKEND=1"
         fi
 
         # Skip if already completed
@@ -136,14 +139,17 @@ for model_spec in "${MODELS[@]}"; do
 
         if $DRY_RUN; then
             echo "[DRY] ${MODEL_NAME} × ${BENCH}:"
-            echo "      ${CMD}"
+            echo "      ${RUN_ENV} ${CMD}"
         else
             echo ""
             echo "──────────────────────────────────────────────"
             echo "[RUN] ${MODEL_NAME} × ${BENCH} (router=${ROUTER})"
+            if [[ -n "${RUN_ENV}" ]]; then
+                echo "[MODE] ${BENCH} planning route (${RUN_ENV})"
+            fi
             echo "──────────────────────────────────────────────"
             cd "${PROJECT_DIR}"
-            eval "${CMD}" 2>&1 | tee "${OUT_DIR}.log" || {
+            eval "${RUN_ENV} ${CMD}" 2>&1 | tee "${OUT_DIR}.log" || {
                 echo "[FAIL] ${MODEL_NAME} × ${BENCH}"
                 continue
             }

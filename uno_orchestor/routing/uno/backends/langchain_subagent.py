@@ -57,6 +57,14 @@ class LangChainSubAgentBackend:
         text = _content_to_text(getattr(response, "content", ""))
         output_tokens = _output_tokens(response)
         input_tokens = _input_tokens(response)
+        print(
+            "\n===== Worker model response "
+            f"model={route.model} skill={route.skill} backend={self.name} "
+            f"input_tokens={input_tokens} output_tokens={output_tokens} =====",
+            flush=True,
+        )
+        print(text, flush=True)
+        print("===== /Worker model response =====", flush=True)
         return PrimitiveResult(
             text=text.strip(),
             output_tokens=output_tokens,

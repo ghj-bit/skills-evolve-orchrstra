@@ -528,7 +528,7 @@ class TerminalBench(BaseBenchmark):
                 "use interactive_verify/run_interactive for reproducible evaluation"
             ),
         )
-        from ..executors import DockerExecutor
+        from ..executors import make_terminalbench_executor
         from uno_orchestor.agents.subagent import SubAgent
 
         cfg = task.raw.get("config", {})
@@ -542,7 +542,7 @@ class TerminalBench(BaseBenchmark):
         verifier_logs.mkdir(parents=True, exist_ok=True)
         agent_logs.mkdir(parents=True, exist_ok=True)
 
-        executor = DockerExecutor(
+        executor = make_terminalbench_executor(
             task_id=task.task_id,
             task_dir=task_dir,
             task_config=cfg,
@@ -720,7 +720,7 @@ class TerminalBench(BaseBenchmark):
         subagent_api_key: str,
         logs_dir: Optional[str],
     ) -> VerifyResult:
-        from ..executors import DockerExecutor
+        from ..executors import make_terminalbench_executor
         from uno_orchestor.agents.subagent import SubAgent
 
         cfg = task.raw.get("config", {})
@@ -745,7 +745,7 @@ class TerminalBench(BaseBenchmark):
             from ..config import DEFAULT_API_BASE
             subagent_api_base = DEFAULT_API_BASE
 
-        executor = DockerExecutor(
+        executor = make_terminalbench_executor(
             task_id=task.task_id,
             task_dir=task_dir,
             task_config=cfg,
@@ -1016,7 +1016,7 @@ class TerminalBench(BaseBenchmark):
         router,
         logs_dir: Optional[str],
     ) -> VerifyResult:
-        from ..executors import DockerExecutor
+        from ..executors import make_terminalbench_executor
 
         cfg = task.raw.get("config", {})
         task_dir = Path(task.raw.get("task_dir", ""))
@@ -1029,7 +1029,7 @@ class TerminalBench(BaseBenchmark):
         verifier_logs.mkdir(parents=True, exist_ok=True)
         agent_logs.mkdir(parents=True, exist_ok=True)
 
-        executor = DockerExecutor(
+        executor = make_terminalbench_executor(
             task_id=task.task_id,
             task_dir=task_dir,
             task_config=cfg,
