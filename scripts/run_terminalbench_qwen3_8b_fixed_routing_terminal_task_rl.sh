@@ -3,11 +3,25 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
+EXTERNAL_UNO_DOCKER_EXECUTOR="${UNO_DOCKER_EXECUTOR-}"
+EXTERNAL_UNO_REMOTE_DOCKER_URL="${UNO_REMOTE_DOCKER_URL-}"
+EXTERNAL_UNO_REMOTE_DOCKER_TOKEN="${UNO_REMOTE_DOCKER_TOKEN-}"
+
 if [[ -f "${PROJECT_DIR}/.env" ]]; then
     set -a
     # shellcheck disable=SC1091
     source "${PROJECT_DIR}/.env"
     set +a
+fi
+
+if [[ -n "${EXTERNAL_UNO_DOCKER_EXECUTOR}" ]]; then
+    export UNO_DOCKER_EXECUTOR="${EXTERNAL_UNO_DOCKER_EXECUTOR}"
+fi
+if [[ -n "${EXTERNAL_UNO_REMOTE_DOCKER_URL}" ]]; then
+    export UNO_REMOTE_DOCKER_URL="${EXTERNAL_UNO_REMOTE_DOCKER_URL}"
+fi
+if [[ -n "${EXTERNAL_UNO_REMOTE_DOCKER_TOKEN}" ]]; then
+    export UNO_REMOTE_DOCKER_TOKEN="${EXTERNAL_UNO_REMOTE_DOCKER_TOKEN}"
 fi
 
 PLANNER_MODEL_ID="${PLANNER_MODEL_ID:-${MODEL_ID:-${DEEPSEEK_MODEL_ID:-deepseek-v4-flash}}}"
